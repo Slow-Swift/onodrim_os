@@ -1,17 +1,18 @@
 
 use crate::{boot_data::BootData, errors::{Error, ErrorStatus}};
 
-pub enum PixelFormat {
-    Rgb = 0,
-    Bgr = 1,
-    Bitmask = 2,
-    BltOnly = 3,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color(pub u8, pub u8, pub u8);
 
 impl Color {
+    pub fn new(hex_code: u32) -> Color {
+        Color (
+            ((hex_code >> 16) & 0xFF) as u8,
+            ((hex_code >> 8) & 0xFF) as u8,
+            (hex_code & 0xFF) as u8
+        )
+    }
+
     #[inline]
     pub fn red(&self) -> u8 { self.0 }
 
@@ -28,7 +29,7 @@ struct BgrPixel(u32);
 
 impl BgrPixel {
     fn new(color: Color) -> BgrPixel {
-        BgrPixel((color.blue() as u32) << 16 | (color.green() as u32) << 8 | color.red() as u32)
+        BgrPixel((color.red() as u32) << 16 | (color.green() as u32) << 8 | color.blue() as u32)
     }
 }
 

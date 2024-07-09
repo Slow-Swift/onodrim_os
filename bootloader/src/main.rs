@@ -52,7 +52,7 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     loop {}
 
-    Status::SUCCESS
+    // Status::SUCCESS
 }
 
 fn get_memory_map(boot_services: &BootServices) -> Result<u64, Error> {

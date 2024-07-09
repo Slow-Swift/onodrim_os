@@ -22,6 +22,14 @@ pub extern "sysv64" fn _start(boot_data: BootData) -> u32 {
         Ok(gr) => gr,
         Err(_) => return 2
     };
-    graphics_renderer.fill(Color(0xFF, 0xFF, 0xFF));
+
+    loop {
+        graphics_renderer.fill(Color(0xFF, 0x00, 0x00));
+        graphics_renderer.fill(Color::new(0x00FF00));
+        graphics_renderer.fill(Color::new(0x0000FF));
+        graphics_renderer.fill(Color::new(0xFFFFFF));
+        graphics_renderer.fill(Color::new(0xFF00FF));
+        graphics_renderer.fill(Color::new(0xFFFF00));
+    }
     return 1;
 } 
