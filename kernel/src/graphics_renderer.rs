@@ -42,21 +42,7 @@ pub struct FrameBuffer {
 
 impl FrameBuffer {
 
-    pub fn set_pixel(&mut self, color: Color, x: usize, y: usize) {
-        let x = if x >= self.width { self.width - 1} else {x};
-        let y = if y >= self.width { self.height - 1} else {y};
-        let pixel_index = y * self.stride + x;
-        self.pixels[pixel_index] = BgrPixel::new(color);
-    }
-}
-
-pub struct GraphicsRenderer {
-    frame_buffer: FrameBuffer
-}
-
-impl GraphicsRenderer {
-
-    pub fn from_boot_data(boot_data: &BootData) -> Result<GraphicsRenderer, Error> {
+    pub fn from_boot_data(boot_data: &BootData) -> Result<FrameBuffer, Error> {
         let frame_buffer_size = boot_data.graphics_mode.frame_buffer_size;
         let pixel_count = frame_buffer_size / core::mem::size_of::<BgrPixel>();
 
@@ -70,26 +56,30 @@ impl GraphicsRenderer {
             }
         };
 
-        let frame_buffer = FrameBuffer {
-            pixels,
-            width: boot_data.graphics_mode.width,
-            height: boot_data.graphics_mode.height,
-            stride: boot_data.graphics_mode.stride
-        };
-
         Ok(
-            GraphicsRenderer {
-                frame_buffer 
+            FrameBuffer {
+                pixels,
+                width: boot_data.graphics_mode.width,
+                height: boot_data.graphics_mode.height,
+                stride: boot_data.graphics_mode.stride
             }
         )
     }
 
     pub fn fill(&mut self, color: Color) {
-        for y in 0..self.frame_buffer.height {
-            for x in 0..self.frame_buffer.width {
-                self.frame_buffer.set_pixel(color, x, y);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                self.set_pixel(x, y, color);
             }
         }
     }
 
+    pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
+        let x = if x >= self.width { self.width - 1} else {x};
+        let y = if y >= self.width { self.height - 1} else {y};
+        let pixel_index = y * self.stride + x;
+        self.pixels[pixel_index] = BgrPixel::new(color);
+    }
+
+    pub fn get_resolution(&self) -> (usize, usize) { (self.width, self.height) }
 }

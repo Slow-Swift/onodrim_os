@@ -1,6 +1,6 @@
 use core::u64::MAX;
 
-use uefi::{data_types::PhysicalAddress, print, println, proto::media::file::{Directory, File, FileAttribute, FileMode, RegularFile}, table::boot::{AllocateType, BootServices, MemoryType}, CStr16, Error};
+use uefi::{data_types::PhysicalAddress, print, println, proto::media::file::{Directory, File, FileAttribute, FileInfo, FileMode, RegularFile}, table::boot::{AllocateType, BootServices, MemoryType}, CStr16, Error};
 
 use crate::elf::{ElfClass, ElfHeader, ElfIdentifier, ElfInstructionSet, Endianness, ProgramHeader, ProgramHeaderSectionType};
 
@@ -38,6 +38,48 @@ pub fn load_kernel(boot_services: &BootServices, root: Directory, base_address: 
     unsafe { boot_services.free_pool(program_headers as *mut [ProgramHeader] as *mut u8).expect("Could not free memory"); }
 
     return entry_point;
+}
+
+pub fn load_font(boot_services: &BootServices, root: Directory) -> (u64, usize) {
+    // Allocations: info_buffer, file_pages
+
+    println!("Loading font...");
+
+    // Open the font file
+    let mut font_file = open_file(root, "kernel/fonts/ascii.psf").expect("Could not open font file.");
+    
+    // Determine the size of the file
+    let mut info_buffer = allocate_u8_ref(boot_services, 128);
+    let info: &FileInfo = match font_file.get_info(info_buffer) {
+        Ok(info) => info,
+        Err(size) => {
+            unsafe { boot_services.free_pool(info_buffer.as_mut_ptr()).expect("Could not free memory"); }
+            info_buffer = allocate_u8_ref(boot_services, size.data().expect("Could not get file info size."));
+            font_file.get_info(info_buffer).expect("Could not get file info")
+        }
+    };
+    let file_size = info.file_size();
+    let page_count = size_to_pages(file_size);
+    println!("Font File Size: {file_size} p({page_count})");
+
+    // Allocate pages for the font file
+    let file_pages: PhysicalAddress = boot_services.allocate_pages(
+        AllocateType::AnyPages, 
+        MemoryType::LOADER_DATA, 
+        page_count as usize
+    )
+        .expect("Could not allocate pages");
+    let file_buffer = unsafe { core::slice::from_raw_parts_mut(file_pages as *mut u8, file_size as usize) };
+
+    // Read the font file
+    font_file.read(file_buffer).expect("Could not read file");
+
+    // Frees: buffer
+    unsafe { boot_services.free_pool(info_buffer.as_mut_ptr()).expect("Could not free memory"); }
+
+    return (file_pages, file_size as usize);
+
+    // Does not free: file_pages (this is needed by the kernel)
 }
 
 fn open_file(mut root: Directory, path: &str) -> Result<RegularFile, Error>{
@@ -97,6 +139,14 @@ fn validate_elf_header(header: &ElfHeader)  -> bool {
         return false;
     }
     return true;
+}
+
+fn allocate_u8_ref(boot_services: &BootServices, size: usize)  -> &mut [u8] {
+    let buffer = boot_services.allocate_pool(MemoryType::BOOT_SERVICES_DATA, size)
+        .expect("Could not allocate Memory.");
+    return unsafe {
+        core::slice::from_raw_parts_mut(buffer.as_ptr(), size)
+    };
 }
 
 ///

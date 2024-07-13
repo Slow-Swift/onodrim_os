@@ -15,6 +15,8 @@ pub struct GraphicsMode {
 #[repr(C)]
 pub struct BootData {
     pub graphics_mode: GraphicsMode,
+    pub font_file_address: *const u8,
+    pub font_file_size: usize,
     pub memory_map_size: usize,
     pub memory_descriptor_size: usize,
     pub memory_map: *const u8
@@ -31,6 +33,8 @@ impl BootData {
                 frame_buffer_size: 0,
                 format: PixelFormat::Bgr 
             },
+            font_file_address: null(),
+            font_file_size: 0,
             memory_map_size: 0,
             memory_descriptor_size: 0,
             memory_map: null()

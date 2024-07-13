@@ -1,7 +1,8 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorStatus {
-    GraphicsPixelFormatNotSupported
+    GraphicsPixelFormatNotSupported,
+    InvalidFileFormat
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
