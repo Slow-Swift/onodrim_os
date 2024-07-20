@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-log = "0.4.21"
-uefi = { version = "0.29.0", features = ["logger", "panic_handler"] }
+r-efi = "4.5.0"
+bootinfo = { path = "../libraries/bootinfo" }
+x86_64_hardware = { path = "../libraries/x86_64_hardware" }
