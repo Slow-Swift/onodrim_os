@@ -3,6 +3,10 @@
 version = 3
 
 [[package]]
+name = "acpi_system_tables"
+version = "0.1.0"
+
+[[package]]
 name = "autocfg"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -24,10 +28,17 @@ dependencies = [
 name = "bootloader"
 version = "0.1.0"
 dependencies = [
+ "acpi_system_tables",
+ "bitmap",
  "bootinfo",
+ "elf",
  "r-efi",
  "x86_64_hardware",
 ]
+
+[[package]]
+name = "elf"
+version = "0.1.0"
 
 [[package]]
 name = "lock_api"
@@ -64,5 +75,6 @@ dependencies = [
 name = "x86_64_hardware"
 version = "0.1.0"
 dependencies = [
+ "bitmap",
  "spin",
 ]

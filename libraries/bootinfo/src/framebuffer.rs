@@ -1,6 +1,5 @@
 use x86_64_hardware::memory::PhysicalAddress;
 
-
 #[repr(C)]
 pub struct FrameBuffer {
     pub base_address: PhysicalAddress,
@@ -18,6 +17,19 @@ impl FrameBuffer {
             width,
             height,
             pixels_per_scan_line,
+        }
+    }
+
+    pub unsafe fn fill(&self, color: u32, memory_offset: u64) {
+        let virt_addr = self.base_address.get_virtual_address_at_offset(memory_offset);
+        let base_pixel = virt_addr.get_mut_ptr::<u32>();
+        for x_pos in 0..self.width {
+            for y_pos in 0..self.height {
+                unsafe {
+                    let pixel = base_pixel.add((y_pos * self.pixels_per_scan_line + x_pos) as usize);
+                    (*pixel) = color;
+                }
+            }
         }
     }
 }
