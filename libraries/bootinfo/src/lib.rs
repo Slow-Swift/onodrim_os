@@ -5,3 +5,4 @@ mod meminfo;
 
 pub use bootinfo::*;
 pub use framebuffer::FrameBuffer;
+pub use meminfo::MemInfo;

@@ -6,5 +6,10 @@ version = "0.1.0"
 edition = "2021"
 forced-target = "x86_64-kernel.json"
 
+[build-dependencies]
+cc = "1.1.6"
+
 [dependencies]
+bootinfo = { path = "../libraries/bootinfo" }
+x86_64_hardware = { path = "../libraries/x86_64_hardware" }
 

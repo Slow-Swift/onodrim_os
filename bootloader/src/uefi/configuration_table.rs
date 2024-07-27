@@ -1,7 +1,7 @@
 use core::ffi::c_void;
 
 use acpi_system_tables::{RsdpV1, RsdpV2};
-use r_efi::efi::{self, Guid};
+use r_efi::efi::Guid;
 
 pub struct ConfigurationTable {
     num_entries: usize,

@@ -1,7 +1,7 @@
 pub const PAGE_SIZE: u64 = 0x1000;
 pub const PHYSICAL_ADDRESS_MASK: u64 = 0x000F_FFFF_FFFF_F000;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct PhysicalAddress(u64);
 
@@ -38,6 +38,12 @@ impl PartialOrd for PhysicalAddress {
     }
 }
 
+impl Ord for PhysicalAddress {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
 pub const VIRTUAL_ADDRESS_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
 pub const VIRTUAL_ADDRESS_SIGN_EXTENSION_MASK: u64 = 0xFFFF_0000_0000_0000;
 pub const MAX_VIRTUAL_ADDRESS: u64 = 0xFFFF_FFFF_FFFF_FFFF;
@@ -54,7 +60,7 @@ const P2_INDEX_MASK: u64 = PAGE_TABLE_INDEX_MASK << P2_OFFSET;
 const P3_INDEX_MASK: u64 = PAGE_TABLE_INDEX_MASK << P3_OFFSET;
 const P4_INDEX_MASK: u64 = PAGE_TABLE_INDEX_MASK << P4_OFFSET;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct VirtualAddress(u64);
 
@@ -137,5 +143,11 @@ impl VirtualAddress {
 impl PartialOrd for VirtualAddress {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.0.partial_cmp(&other.0)
+    }
+}
+
+impl Ord for VirtualAddress {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.0.cmp(&other.0)
     }
 }
