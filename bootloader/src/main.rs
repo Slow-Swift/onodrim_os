@@ -1,158 +1,285 @@
 #![no_main]
 #![no_std]
 
-use core::mem::transmute;
-use boot_data::BootData;
-use loader::load_kernel;
-use uefi::println;
-use uefi::prelude::*;
-use uefi::proto::console::gop::GraphicsOutput;
-use uefi::proto::console::text::Output;
-use uefi::proto::media::file::Directory;
-use uefi::table::boot::MemoryType;
-use uefi::table::boot::OpenProtocolParams;
-use uefi::Error;
+use core::ffi::c_void;
 
-mod elf;
-mod loader;
-mod boot_data;
+use bootinfo::{BootInfo, MemInfo};
+use elf_section_list::ElfSectionList;
+use loaded_asset_list::LoadedAssetList;
+use r_efi::efi;
+use uefi::SystemTableWrapper;
+use x86_64_hardware::{com1_println, memory::{PageFrameAllocator, PageTableManager, PhysicalAddress, VirtualAddress, MAX_MEM_SIZE, MAX_VIRTUAL_ADDRESS, MEM_1G, PAGE_OFFSET_MASK, PAGE_SIZE}};
 
-#[entry]
-fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
+mod uefi;
+mod unicode;
+mod loaded_asset_list;
+mod elf_section_list;
 
-    uefi::helpers::init(&mut system_table).unwrap();
+#[panic_handler]
+fn panic_handler(info: &core::panic::PanicInfo) -> ! {
+    com1_println!("Panic:");
+    com1_println!("  {}", info.message());
 
-    system_table.stdout().clear().expect("Could not clear display");
-    println!("Bootloader started!");
-
-    let mut boot_data = BootData::empty();
-
-    setup_output_mode(system_table.stdout());
-    println!("Activated output mode 0");
-
-    let current_output_mode = system_table.stdout().current_mode().expect("Could not get current output mode").expect("No output mode");
-    boot_data.output_mode.output_width = current_output_mode.columns();
-    boot_data.output_mode.output_height = current_output_mode.rows();
-
-    graphics(image_handle.clone(), system_table.boot_services(), &mut boot_data);
-    let kernel_base = get_memory_map(system_table.boot_services()).expect("Could not get mm");
-
-    let root = open_root_directory(image_handle, system_table.boot_services()).expect("Could not open root directory");
-    let entry_point = load_kernel(system_table.boot_services(), root, kernel_base);
-
-    // println!("Exiting boot services...");
-    // let (_system_table, memory_map) = unsafe { 
-    //     system_table.exit_boot_services(MemoryType::LOADER_DATA)
-    // };
-    // let (memory_map, memory_map_meta) = memory_map.as_raw();
-    // boot_data.memory_descriptor_size = memory_map_meta.desc_size;
-    // boot_data.memory_map_size = memory_map_meta.map_size;
-    // boot_data.memory_map = Some(memory_map);
-
-    println!("{}", boot_data.output_mode.output_height);
-    println!("Starting kernel...");
-    type KernelEntry = extern "sysv64" fn(BootData) -> u32;
-    let kernel_entry: KernelEntry = unsafe { transmute(entry_point) };
-    let exit_code = kernel_entry(boot_data);
-    println!("Kernel quit with exit code {exit_code}");
-
-    loop {}
-
-    Status::SUCCESS
+    match info.location() {
+        Some(location) => com1_println!("  {location}"),
+        None => {},
+    }
+    loop {};
 }
 
-fn setup_output_mode(stdout: &mut Output) {
-    for mode in stdout.modes() {
-        if mode.index() == 0 {
-            stdout
-                .set_mode(mode)
-                .expect("Could not set output mode");
-            return;
+#[no_mangle]
+pub extern "C" fn efi_main(image_handle: efi::Handle, system_table: *const efi::SystemTable) -> efi::Status {
+    let system_table = unsafe { SystemTableWrapper::new(system_table) };
+    
+    let result = main(image_handle, system_table);
+
+    match result {
+        Ok(()) => efi::Status::SUCCESS,
+        Err(status) => {
+            com1_println!("Bootloader Error: {status:#?}");
+            status
+        }
+    }
+}
+
+fn main(image_handle: efi::Handle, system_table: SystemTableWrapper) -> Result<(), efi::Status> {
+    com1_println!("Bootloader loaded");
+    let bootinfo_size_pages = (core::mem::size_of::<BootInfo>() + PAGE_SIZE as usize - 1) / PAGE_SIZE as usize;
+    let bootinfo = system_table.boot_services().allocate_pages::<BootInfo>(r_efi::system::LOADER_DATA, bootinfo_size_pages)?;
+    let bootinfo = unsafe { &mut *bootinfo };
+    (*bootinfo) = BootInfo::default();
+    bootinfo.framebuffer = initialize_gop(system_table)?;
+
+    let (kernel_asset_list, entry_point) = load_kernel(image_handle, system_table)?;
+
+    let configuration_table = system_table.get_configuration_table();
+    let mem_info = system_table.boot_services().get_memory_map()?;
+    com1_println!("Got Memory Map");
+
+    system_table.boot_services().exit_boot_services(image_handle, mem_info.map_key)?;
+    com1_println!("Exited Boot Services");
+
+    unsafe {
+        // Memory offset is 0 since we haven't set up paging yet
+        (*bootinfo).framebuffer.fill(0, 0);
+    }
+
+
+    com1_println!("Memory Map:");
+    for descriptor in mem_info.map.iter() {
+        com1_println!("  {:?}: {:#X} -> {:#X} p({})", descriptor.mem_type(), descriptor.phys_addr.as_u64(), descriptor.max_physical_address().as_u64(), descriptor.num_pages)
+    }
+
+    let mut allocator = mem_info.map.init_frame_allocator();
+    let max_physical_address = mem_info.map.max_physical_address();
+    let max_usable_address = mem_info.map.max_usable_physical_address();
+    mem_info.map.free_pages(&mut allocator).expect("Alloc error on free memory map. This should be impossible.");
+    com1_println!("Availiable Memory: {:#X} p({})", allocator.get_free_ram(), (allocator.get_free_ram() + PAGE_SIZE - 1) / PAGE_SIZE);
+    com1_println!("Used Memory: {:#X} p({})", allocator.get_used_ram(), (allocator.get_used_ram() + PAGE_SIZE - 1) / PAGE_SIZE);
+    com1_println!("Total Usable Memory: {:#X} p({})", max_usable_address.as_u64(), (max_usable_address.as_u64() + PAGE_SIZE - 1) / PAGE_SIZE);
+    com1_println!("Total System Memory: {:#X} p({})", max_physical_address.as_u64(), (max_physical_address.as_u64() + PAGE_SIZE - 1) / PAGE_SIZE);
+
+    let mut kernel_base_address = VirtualAddress::new(MAX_VIRTUAL_ADDRESS);
+    for asset in kernel_asset_list.iter() {
+        if asset.virtual_address < kernel_base_address {
+            kernel_base_address = asset.virtual_address;
         }
     }
 
-    panic!("Output Mode 0 Not Availiable");
-}
-
-fn graphics(image_handle: Handle, boot_services: &BootServices, boot_data: &mut BootData) {
-    println!("Checking Graphics");
-    let gop_handle = 
-        match boot_services.get_handle_for_protocol::<GraphicsOutput>() {
-            Ok(handle) => handle,
-            Err(_error) => {
-                println!("Could not get GraphicsOutputProtocol handle");
-                return;
-            }
-        };
-
-    let gop;
-
-    // Using open_protocol because open_protocol_exclusive stops printing from working
-    unsafe { 
-        gop = match boot_services.open_protocol::<GraphicsOutput>(
-            OpenProtocolParams {
-                handle: gop_handle,
-                agent: image_handle,
-                controller: None
-            },
-            uefi::table::boot::OpenProtocolAttributes::GetProtocol
-        ) {
-            Ok(gop) => gop,
-            Err(_error) => {
-                println!("Could not open GraphicsOutputProtocol");
-                return;
-            }
-        };
-    }
-    
-    println!("Graphics Modes:");
-    for (i, mode) in gop.modes(boot_services).enumerate() {
-        let (x,y) = mode.info().resolution();
-        let format = mode.info().pixel_format();
-        println!("  Mode {i}: {x}x{y} Format: {format:?}");
-    }
-
-    let current_mode = gop.current_mode_info();
-    let (width, height) = current_mode.resolution();
-    let format = gop.current_mode_info().pixel_format();
-
-    boot_data.graphics_mode.width = width;
-    boot_data.graphics_mode.height = height;
-    boot_data.graphics_mode.format = format;
-    boot_data.graphics_mode.stride = current_mode.stride();
-
-    println!("Current Graphics Mode: {width}x{height}, Format: {:?}", format);
-}
-
-fn get_memory_map(boot_services: &BootServices) -> Result<u64, Error> {
-    // Get the memory map
-    let memory_map = match boot_services.memory_map(MemoryType::BOOT_SERVICES_DATA) {
-        Ok(map) => map,
-        Err(error) => {
-            println!("Could not get memory map!\nError: {error}");
-            return Err(error);
+    let firmware_page_table_manager = PageTableManager::new_from_cr3(0);
+    let (mut page_table_manager, offset) = match init_page_table_manager(&mut allocator, max_physical_address, kernel_base_address) {
+        Some(ptm) => ptm,
+        None => {
+            com1_println!("Memsize too large");
+            return Err(efi::Status::ABORTED);
         }
     };
+    com1_println!("Created page table");
 
-    // Loop over the memory map to find space to load the kernel into
-    let mut base_address = 0;
-    let mut num_pages = 0;
-    println!("Searching memory for space for kernel...");
-    for descriptor in memory_map.entries() {
-        if descriptor.ty == MemoryType::CONVENTIONAL {
-            if base_address <= descriptor.phys_start {
-                base_address = descriptor.phys_start;
-                num_pages = descriptor.page_count;
-            }
+    (*bootinfo).page_table_memory_offset = offset;
+
+    unsafe {
+        page_table_manager.activate_page_table();
+        page_table_manager.set_offset(offset);
+    }
+
+    firmware_page_table_manager.release_tables(&mut allocator)
+        .expect("Could not release firmware page table.");
+
+    for asset in kernel_asset_list.iter() {
+        com1_println!(
+            "Mapping kernel asset. Phys: {:#X} -> {:#X}, Virt: {:#X} -> {:#X}", 
+            asset.physical_address.as_u64(), asset.physical_address.increment_pages(asset.num_pages as u64).as_u64(),
+            asset.virtual_address.as_u64(), asset.virtual_address.increment_pages(asset.num_pages as u64).as_u64(),
+        );
+        page_table_manager.map_memory_pages(asset.virtual_address, asset.physical_address, asset.num_pages as u64, &mut allocator)
+            .expect("Could not map kernel virtual memory");
+        let max_address = asset.virtual_address.increment_pages(asset.num_pages as u64);
+        if max_address > bootinfo.next_availiable_kernel_page {
+            bootinfo.next_availiable_kernel_page = max_address;
         }
     }
-    println!("Found {num_pages} pages at {base_address:#X}.");
 
-    Ok(base_address)
+    let bootinfo_virtual_address = bootinfo.next_availiable_kernel_page;
+    let bootinfo_physical_address = PhysicalAddress::new(bootinfo as *mut BootInfo as u64);
+    com1_println!("Mapping bootinfo from {:#X} to {:#X}", bootinfo_physical_address.as_u64(), bootinfo_virtual_address.as_u64());
+    page_table_manager.map_memory_pages(bootinfo_virtual_address, bootinfo_physical_address, bootinfo_size_pages as u64, &mut allocator)
+        .expect("Could not map boot info virtual memory");
+    bootinfo.next_availiable_kernel_page = bootinfo_virtual_address.increment_pages(bootinfo_size_pages as u64);
+
+    unsafe { page_table_manager.activate_page_table(); }
+
+    // Update boot info pointer to point to the kernel mapped address
+    let bootinfo = unsafe { &mut *(bootinfo_virtual_address.get_mut_ptr::<BootInfo>()) };
+
+    if !bootinfo.has_valid_magic() { panic!("Could not correctly map bootinfo into kernel space. BootInfo Magic incorrect") }
+    
+    let num_bitmap_pages = (allocator.page_bitmap().size() as u64 + PAGE_SIZE - 1) / PAGE_SIZE;
+    let bitmap_buffer_physical_addr = PhysicalAddress::new(unsafe { allocator.page_bitmap().get_buffer() as u64 });
+    let bitmap_buffer_virtual_addr = bootinfo.next_availiable_kernel_page;
+    page_table_manager.map_memory_pages(bitmap_buffer_virtual_addr, bitmap_buffer_physical_addr, num_bitmap_pages, &mut allocator)
+        .expect("Could not map allocator bitmap into virtual memory");
+    bootinfo.next_availiable_kernel_page = bitmap_buffer_virtual_addr.increment_pages(num_bitmap_pages);
+
+    unsafe { page_table_manager.activate_page_table(); }
+
+    let output_bitmap = unsafe { bitmap::Bitmap::new(allocator.page_bitmap().size(), bitmap_buffer_virtual_addr.get_mut_ptr::<u8>()) };
+    bootinfo.meminfo = MemInfo::new(output_bitmap, allocator.get_free_ram(), 0, allocator.get_used_ram(), max_physical_address);
+
+    com1_println!("Starting Kernel");
+    let kernel_start: unsafe extern "sysv64" fn(*mut BootInfo) = unsafe { core::mem::transmute(entry_point.get_mut_ptr::<c_void>()) };
+    unsafe { kernel_start(bootinfo) };
+
+    return Ok(())
 }
 
-fn open_root_directory(image_handle: Handle, boot_services: &BootServices) -> Result<Directory, Error>{
-    boot_services
-        .get_image_file_system(image_handle)?
-        .open_volume()
+fn load_kernel(image_handle: efi::Handle, system_table: uefi::SystemTableWrapper) -> Result<(LoadedAssetList, VirtualAddress), efi::Status> {
+    let file_volume = system_table.boot_services().open_volume(image_handle)?;
+    let kernel_file = file_volume.open_path(
+        "kernel/kernel.elf", 
+        efi::protocols::file::MODE_READ, 
+        efi::protocols::file::READ_ONLY
+    )?;
+    com1_println!("Opened kernel file");
+
+    let elf_common = kernel_file.read_struct::<elf::ElfHeaderCommon>()?;
+    validate_elf(&elf_common)?;
+    com1_println!("Kernel header verified successfully!");
+
+    kernel_file.set_position(0)?;
+
+    let elf_header = kernel_file.read_struct::<elf::ElfHeader64>()?;
+
+    com1_println!("File has {} program sections", elf_header.e_phnum);
+
+    let mut kernel_asset_list = LoadedAssetList::new(elf_header.e_phnum as usize, system_table)?;
+    let mut kernel_section_list = ElfSectionList::new(elf_header.e_phnum as usize, system_table)?;
+    for header_index in 0..elf_header.e_phnum {
+        let entry_position = elf_header.e_phoff + (u64::from(header_index) * u64::from(elf_header.e_phentsize));
+        kernel_file.set_position(entry_position)?;
+        let program_header = kernel_file.read_struct::<elf::ElfPhysicalHeader64>()?;
+
+        match program_header.p_type() {
+            elf::ElfPhysicalType::Load => {
+                kernel_section_list.add_section(&program_header);
+                com1_println!("  Loadable section {}: \tms({:#X}), \tfs({:#X}), \tvaddr({:#X})", header_index, program_header.p_memsz, program_header.p_filesz, program_header.p_vaddr);
+            },
+            _ => {},
+        }
+    }
+
+    for section in kernel_section_list.iter() {
+        let section_buffer = system_table
+            .boot_services()
+            .allocate_pages
+            ::<c_void>(r_efi::system::LOADER_DATA, section.num_mem_pages as usize)?;
+        
+        
+        kernel_file.set_position(section.file_address.as_u64())?;
+        let mut program_size = (section.num_file_pages * PAGE_SIZE) as usize;
+        kernel_file.read(&mut program_size, section_buffer)?;
+        kernel_asset_list.add_asset(PhysicalAddress::new(section_buffer as u64), section.num_mem_pages as usize, section.virtual_address);
+        com1_println!("  Loaded section: \tvaddr({:#X}), \tmp({}), \tfp({})", section.virtual_address.as_u64(), section.num_mem_pages, section.num_file_pages);
+    }
+
+    Ok((kernel_asset_list, VirtualAddress::new(elf_header.e_entry)))
+}
+
+fn init_page_table_manager(
+    allocator: &mut PageFrameAllocator, 
+    max_physical_address: PhysicalAddress, 
+    kernel_base_address: VirtualAddress
+) -> Option<(PageTableManager, u64)> {
+    if max_physical_address.as_u64() > MAX_MEM_SIZE {
+        return None;
+    }
+
+    let page_table_manager = PageTableManager::new_from_allocator(allocator, 0);
+
+    // Identitiy map the entire range
+    let num_mem_pages = max_physical_address.as_u64() / PAGE_SIZE;
+    page_table_manager.map_memory_pages(VirtualAddress::new(0), PhysicalAddress::new(0), num_mem_pages, allocator)
+        .expect("Could not map memory pages");
+
+    // Size of address space set aside in GB
+    let num_gb = (max_physical_address.as_u64() + MEM_1G - 1) / MEM_1G;
+
+    let offset;
+    if num_gb * MEM_1G < kernel_base_address.as_u64() {
+        offset = kernel_base_address.as_u64() - num_gb * MEM_1G;
+        page_table_manager.map_memory_pages(VirtualAddress::new(offset), PhysicalAddress::new(0), num_mem_pages, allocator)
+            .expect("Could not map memory pages.");
+    } else {
+        offset = 0;
+    }
+    
+    
+    Some((page_table_manager, offset))
+}
+
+fn validate_elf(header: &elf::ElfHeaderCommon) -> Result<(), efi::Status> {
+    if !header.has_valid_magic() {
+        com1_println!("Invalid magic");
+        return Err(efi::Status::LOAD_ERROR);
+    }
+
+    if header.class() != elf::ElfClass::Bits64 {
+        com1_println!("Invalid class: {:?}", header.class());
+        return Err(efi::Status::LOAD_ERROR);
+    }
+
+    if header.endianness() != elf::ElfEndianness::Little {
+        com1_println!("Invalid endianness: {:?}", header.endianness());
+        return Err(efi::Status::LOAD_ERROR);
+    }
+
+    if header.e_type() != elf::ElfType::Exec {
+        com1_println!("Invalid type: {:?}", header.e_type());
+        return Err(efi::Status::LOAD_ERROR);
+    }
+
+    if header.e_machine() != elf::ElfMachine::ElfMachineX8664 {
+        com1_println!("Invalid machine: {:?}", header.e_machine());
+        return Err(efi::Status::LOAD_ERROR);
+    }
+
+    if header.e_version() != elf::ElfVersion::Current {
+        com1_println!("Invalid version: {:?}", header.e_version());
+        return Err(efi::Status::LOAD_ERROR);
+    }
+
+    Ok(())
+}
+
+fn initialize_gop(system_table: uefi::SystemTableWrapper) -> Result<bootinfo::FrameBuffer, efi::Status>{
+    let gop = match system_table.boot_services().get_graphics_output_protocol() {
+        Ok(gop) => gop,
+        Err(status) => {
+            com1_println!("Cannot load GOP. Status: {status:#?}");
+            return Err(status)
+        }
+    };
+    com1_println!("Loaded GOP");
+
+    return Ok(gop.get_framebuffer());
 }

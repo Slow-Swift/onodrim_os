@@ -13,3 +13,4 @@ mkdir -p esp/EFI/BOOT
 mkdir -p esp/kernel
 cp $BOOTLOADER esp/EFI/BOOT/BOOTX64.EFI
 cp $KERNEL esp/kernel/kernel.elf
+cp -r assets/fonts esp/kernel/fonts

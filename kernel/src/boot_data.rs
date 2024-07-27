@@ -1,3 +1,4 @@
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub enum PixelFormat {
     Rgb = 0,
@@ -6,24 +7,23 @@ pub enum PixelFormat {
     BltOnly = 3,
 }
 
-#[repr(C)]
-pub struct OutputMode {
-    pub output_width: usize,
-    pub output_height: usize
-}
-
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct GraphicsMode {
     pub width: usize,
     pub height: usize,
     pub stride: usize,
+    pub frame_buffer: *mut u8,
+    pub frame_buffer_size: usize,
     pub format: PixelFormat
 }
 
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct BootData {
-    pub output_mode: OutputMode,
     pub graphics_mode: GraphicsMode,
+    pub font_file_address: *const u8,
+    pub font_file_size: usize,
     pub memory_map_size: usize,
     pub memory_descriptor_size: usize,
     pub memory_map: *const u8
