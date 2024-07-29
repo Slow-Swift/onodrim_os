@@ -64,6 +64,7 @@ impl LayoutRenderer {
 
 impl fmt::Write for LayoutRenderer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.print_string(s);
         Ok(())
     }
 }

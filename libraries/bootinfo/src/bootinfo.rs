@@ -16,6 +16,7 @@ pub struct BootInfo {
     pub next_availiable_kernel_page: VirtualAddress,
     pub meminfo: MemInfo,
     pub font_file_address: VirtualAddress,
+    pub font_file_size: usize,
 }
 
 impl BootInfo {
@@ -31,6 +32,7 @@ impl Default for BootInfo {
             next_availiable_kernel_page: VirtualAddress::new(0),
             meminfo: MemInfo::default(),
             font_file_address: VirtualAddress::new(0),
+            font_file_size: 0,
         }
     }
 }

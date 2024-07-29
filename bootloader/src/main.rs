@@ -8,7 +8,7 @@ use elf_section_list::ElfSectionList;
 use loaded_asset_list::LoadedAssetList;
 use r_efi::efi;
 use uefi::SystemTableWrapper;
-use x86_64_hardware::{com1_println, memory::{PageFrameAllocator, PageTableManager, PhysicalAddress, VirtualAddress, MAX_MEM_SIZE, MAX_VIRTUAL_ADDRESS, MEM_1G, PAGE_OFFSET_MASK, PAGE_SIZE}};
+use x86_64_hardware::{com1_println, memory::{PageFrameAllocator, PageTableManager, PhysicalAddress, VirtualAddress, MAX_MEM_SIZE, MAX_VIRTUAL_ADDRESS, MEM_1G, PAGE_SIZE}};
 
 mod uefi;
 mod unicode;
@@ -52,7 +52,7 @@ fn main(image_handle: efi::Handle, system_table: SystemTableWrapper) -> Result<(
 
     let (kernel_asset_list, entry_point) = load_kernel(image_handle, system_table)?;
 
-    let (font_file_address, font_file_page_count) = load_font(image_handle, &system_table)?;
+    let (font_file_address, font_file_page_count, font_file_size) = load_font(image_handle, &system_table)?;
 
     let configuration_table = system_table.get_configuration_table();
     let mem_info = system_table.boot_services().get_memory_map()?;
@@ -156,6 +156,7 @@ fn main(image_handle: efi::Handle, system_table: SystemTableWrapper) -> Result<(
         .expect("Could not map font file into virtual memory");
     bootinfo.next_availiable_kernel_page = font_file_virtual_addr.increment_pages(font_file_page_count as u64);
     bootinfo.font_file_address = font_file_virtual_addr;
+    bootinfo.font_file_size = font_file_size;
 
     com1_println!("Starting Kernel");
     let kernel_start: unsafe extern "sysv64" fn(*mut BootInfo) = unsafe { core::mem::transmute(entry_point.get_mut_ptr::<c_void>()) };
@@ -216,7 +217,7 @@ fn load_kernel(image_handle: efi::Handle, system_table: uefi::SystemTableWrapper
     Ok((kernel_asset_list, VirtualAddress::new(elf_header.e_entry)))
 }
 
-fn load_font(image_handle: efi::Handle, system_table: &uefi::SystemTableWrapper) -> Result<(PhysicalAddress, usize), efi::Status>{
+fn load_font(image_handle: efi::Handle, system_table: &uefi::SystemTableWrapper) -> Result<(PhysicalAddress, usize, usize), efi::Status>{
     com1_println!("Loading Font");
     let file_volume = system_table.boot_services().open_volume(image_handle)?;
     let font_file = file_volume.open_path(
@@ -234,7 +235,7 @@ fn load_font(image_handle: efi::Handle, system_table: &uefi::SystemTableWrapper)
     font_file.set_position(0)?;
     font_file.read(&mut buffer_size, pages)?;
 
-    Ok((PhysicalAddress::new(pages as u64), page_count))
+    Ok((PhysicalAddress::new(pages as u64), page_count, file_info.file_size as usize))
 }
 
 fn init_page_table_manager(

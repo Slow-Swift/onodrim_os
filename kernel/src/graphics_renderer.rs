@@ -1,5 +1,7 @@
 
-use crate::{boot_data::BootData, errors::{Error, ErrorStatus}};
+use bootinfo::BootInfo;
+
+use crate::errors::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color(pub u8, pub u8, pub u8);
@@ -42,26 +44,25 @@ pub struct FrameBuffer {
 
 impl FrameBuffer {
 
-    pub fn from_boot_data(boot_data: &BootData) -> Result<FrameBuffer, Error> {
-        let frame_buffer_size = boot_data.graphics_mode.frame_buffer_size;
+    pub fn from_boot_data(bootinfo: &BootInfo) -> Result<FrameBuffer, Error> {
+        let frame_buffer_size = bootinfo.framebuffer.buffer_size;
         let pixel_count = frame_buffer_size / core::mem::size_of::<BgrPixel>();
 
+        let buffer_address = bootinfo.framebuffer.base_address.get_virtual_address_at_offset(bootinfo.page_table_memory_offset);
+
         let pixels: &mut [BgrPixel] = unsafe {
-            match boot_data.graphics_mode.format {
-                crate::boot_data::PixelFormat::Bgr => core::slice::from_raw_parts_mut(
-                    boot_data.graphics_mode.frame_buffer as *mut BgrPixel, 
-                    pixel_count
-                ),
-                _ => return Err(Error::new(ErrorStatus::GraphicsPixelFormatNotSupported))
-            }
+            core::slice::from_raw_parts_mut(
+                buffer_address.as_u64() as *mut BgrPixel, 
+                pixel_count
+            )
         };
 
         Ok(
             FrameBuffer {
                 pixels,
-                width: boot_data.graphics_mode.width,
-                height: boot_data.graphics_mode.height,
-                stride: boot_data.graphics_mode.stride
+                width: bootinfo.framebuffer.width as usize,
+                height: bootinfo.framebuffer.height as usize,
+                stride: bootinfo.framebuffer.pixels_per_scan_line as usize,
             }
         )
     }
