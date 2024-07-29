@@ -1,8 +1,11 @@
 use core::{ffi::c_void, ptr::{addr_of, null_mut}};
 
-use r_efi::{efi, protocols::file};
+use r_efi::{efi, protocols::file::{self, Info}};
+use x86_64_hardware::{com1_println, memory::{FrameAllocator, PhysicalAddress, PAGE_SIZE}};
 
 use crate::unicode::{str_utf8_to_utf16, EncodeStatus};
+
+use super::SystemTableWrapper;
 
 pub struct FileProtocol {
     file_ptr: *mut file::Protocol,
@@ -69,6 +72,33 @@ impl FileProtocol {
         }
     }
 
+    pub fn get_info(&self, system_table: &SystemTableWrapper) -> Result<FileInfo, efi::Status> {
+        let mut guid = file::INFO_ID;
+        let ptr = system_table.boot_services().allocate_pages(r_efi::system::LOADER_DATA, 1)?;
+        let mut size = PAGE_SIZE as usize;
+
+        let status = unsafe { ((*self.file_ptr).get_info)(self.file_ptr, &mut guid, &mut size, ptr) };
+        
+        if status != efi::Status::SUCCESS { return Err(status); }
+
+        let ptr = ptr as *mut Info;
+
+        let file_info = unsafe { 
+            FileInfo {
+                file_size: (*ptr).file_size,
+                physical_size: (*ptr).physical_size,
+                create_time: (*ptr).create_time,
+                access_time: (*ptr).last_access_time,
+                modification_time: (*ptr).modification_time,
+                attributes: (*ptr).attribute,
+            }
+        };
+
+        unsafe { system_table.boot_services().free_pages(ptr, 1)?; }
+
+        Ok(file_info)
+    }
+
     pub fn close(&mut self) -> efi::Status {
         if self.is_open {
             let status = unsafe {
@@ -105,4 +135,14 @@ impl Drop for FileProtocol {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+#[derive(Clone, Copy)]
+pub struct FileInfo {
+    pub file_size: u64,
+    pub physical_size: u64,
+    pub create_time: efi::Time,
+    pub access_time: efi::Time,
+    pub modification_time: efi::Time,
+    pub attributes: u64,
 }

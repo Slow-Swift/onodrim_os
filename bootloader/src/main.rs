@@ -52,6 +52,8 @@ fn main(image_handle: efi::Handle, system_table: SystemTableWrapper) -> Result<(
 
     let (kernel_asset_list, entry_point) = load_kernel(image_handle, system_table)?;
 
+    let (font_file_address, font_file_page_count) = load_font(image_handle, &system_table)?;
+
     let configuration_table = system_table.get_configuration_table();
     let mem_info = system_table.boot_services().get_memory_map()?;
     com1_println!("Got Memory Map");
@@ -120,6 +122,7 @@ fn main(image_handle: efi::Handle, system_table: SystemTableWrapper) -> Result<(
         }
     }
 
+    // Map bootinfo into kernel space
     let bootinfo_virtual_address = bootinfo.next_availiable_kernel_page;
     let bootinfo_physical_address = PhysicalAddress::new(bootinfo as *mut BootInfo as u64);
     com1_println!("Mapping bootinfo from {:#X} to {:#X}", bootinfo_physical_address.as_u64(), bootinfo_virtual_address.as_u64());
@@ -134,6 +137,7 @@ fn main(image_handle: efi::Handle, system_table: SystemTableWrapper) -> Result<(
 
     if !bootinfo.has_valid_magic() { panic!("Could not correctly map bootinfo into kernel space. BootInfo Magic incorrect") }
     
+    // Map allocator bitmap into kernel space
     let num_bitmap_pages = (allocator.page_bitmap().size() as u64 + PAGE_SIZE - 1) / PAGE_SIZE;
     let bitmap_buffer_physical_addr = PhysicalAddress::new(unsafe { allocator.page_bitmap().get_buffer() as u64 });
     let bitmap_buffer_virtual_addr = bootinfo.next_availiable_kernel_page;
@@ -145,6 +149,13 @@ fn main(image_handle: efi::Handle, system_table: SystemTableWrapper) -> Result<(
 
     let output_bitmap = unsafe { bitmap::Bitmap::new(allocator.page_bitmap().size(), bitmap_buffer_virtual_addr.get_mut_ptr::<u8>()) };
     bootinfo.meminfo = MemInfo::new(output_bitmap, allocator.get_free_ram(), 0, allocator.get_used_ram(), max_physical_address);
+
+    // Map font file into kernel space
+    let font_file_virtual_addr = bootinfo.next_availiable_kernel_page;
+    page_table_manager.map_memory_pages(font_file_virtual_addr, font_file_address, font_file_page_count as u64, &mut allocator)
+        .expect("Could not map font file into virtual memory");
+    bootinfo.next_availiable_kernel_page = font_file_virtual_addr.increment_pages(font_file_page_count as u64);
+    bootinfo.font_file_address = font_file_virtual_addr;
 
     com1_println!("Starting Kernel");
     let kernel_start: unsafe extern "sysv64" fn(*mut BootInfo) = unsafe { core::mem::transmute(entry_point.get_mut_ptr::<c_void>()) };
@@ -203,6 +214,27 @@ fn load_kernel(image_handle: efi::Handle, system_table: uefi::SystemTableWrapper
     }
 
     Ok((kernel_asset_list, VirtualAddress::new(elf_header.e_entry)))
+}
+
+fn load_font(image_handle: efi::Handle, system_table: &uefi::SystemTableWrapper) -> Result<(PhysicalAddress, usize), efi::Status>{
+    com1_println!("Loading Font");
+    let file_volume = system_table.boot_services().open_volume(image_handle)?;
+    let font_file = file_volume.open_path(
+        "kernel/fonts/ascii.psf", 
+        efi::protocols::file::MODE_READ, 
+        efi::protocols::file::READ_ONLY
+    )?;
+
+    let file_info = font_file.get_info(system_table)?;
+    let page_count = ((file_info.file_size + PAGE_SIZE - 1) / PAGE_SIZE) as usize;
+    com1_println!("Font File Size: {:#X}, p({:#X})", file_info.file_size, page_count);
+
+    let pages = system_table.boot_services().allocate_pages(r_efi::system::LOADER_DATA, page_count)?;
+    let mut buffer_size = page_count * PAGE_SIZE as usize;
+    font_file.set_position(0)?;
+    font_file.read(&mut buffer_size, pages)?;
+
+    Ok((PhysicalAddress::new(pages as u64), page_count))
 }
 
 fn init_page_table_manager(

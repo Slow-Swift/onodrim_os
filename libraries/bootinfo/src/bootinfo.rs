@@ -15,6 +15,7 @@ pub struct BootInfo {
     pub page_table_memory_offset: u64,
     pub next_availiable_kernel_page: VirtualAddress,
     pub meminfo: MemInfo,
+    pub font_file_address: VirtualAddress,
 }
 
 impl BootInfo {
@@ -29,6 +30,7 @@ impl Default for BootInfo {
             page_table_memory_offset: 0,
             next_availiable_kernel_page: VirtualAddress::new(0),
             meminfo: MemInfo::default(),
+            font_file_address: VirtualAddress::new(0),
         }
     }
 }

@@ -107,5 +107,7 @@ pub extern "C" fn kernel_main(bootinfo: *mut BootInfo) {
     com1_println!("Hello world from the kernel!");
     com1_println!("Bootinfo valid: {}", bootinfo.has_valid_magic());
 
+    unsafe { bootinfo.framebuffer.fill(0xFFFFFF, bootinfo.page_table_memory_offset) };
+
     loop {}
 }

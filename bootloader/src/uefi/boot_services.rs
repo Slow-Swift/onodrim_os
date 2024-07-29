@@ -35,7 +35,7 @@ impl BootServices {
 
     /// ## Safety
     /// The caller must ensure that no references to the freed memory remains
-    unsafe fn free_pages<T>(&self, mem: *mut T, num_pages: usize) -> Result<(), efi::Status> {
+    pub unsafe fn free_pages<T>(&self, mem: *mut T, num_pages: usize) -> Result<(), efi::Status> {
         return self.free_pages_raw(mem as u64, num_pages)
     }
 
