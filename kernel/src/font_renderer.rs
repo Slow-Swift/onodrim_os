@@ -58,6 +58,11 @@ impl FontRenderer {
 
     pub fn get_glyph_height(&self) -> usize { self.glyph_height * self.scale }
 
+    pub fn set_colors(&mut self, foreground: Color, background: Color) {
+        self.foreground_color = foreground;
+        self.background_color = background;
+    }
+
 }
 
 fn is_valid_font_header(font_data: &[u8]) -> bool { (font_data[0] == 0x36) && (font_data[1] == 0x04) }

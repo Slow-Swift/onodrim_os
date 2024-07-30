@@ -10,6 +10,7 @@ forced-target = "x86_64-kernel.json"
 cc = "1.1.6"
 
 [dependencies]
+spin = "0.9.8"
 bootinfo = { path = "../libraries/bootinfo" }
 x86_64_hardware = { path = "../libraries/x86_64_hardware" }
 

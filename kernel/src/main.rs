@@ -1,52 +1,76 @@
-#![no_std] // don't link the Rust standard library
-#![no_main] // disable all Rust-level entry points
+#![no_std]
+#![no_main]
 
 use core::panic::PanicInfo;
 
 use bootinfo::BootInfo;
-use layout_renderer::LayoutRenderer;
-use x86_64_hardware::{com1_println, devices::uart::COM1};
-
-use font_renderer::FontRenderer;
-use graphics_renderer::{Color, FrameBuffer};
+use x86_64_hardware::memory::PageFrameAllocator;
 
 mod errors;
 mod graphics_renderer;
 mod font_renderer;
 mod layout_renderer;
-
-// static mut lr: Option<LayoutRenderer> = None;
-static mut BOOT_INFO: Option<BootInfo> = None;
+mod logger;
 
 /// This function is called on panic. 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    com1_println!("Panicked");
+fn panic(info: &PanicInfo) -> ! {
+    logger::initialize_com1();
+
+    println!("Kernel Panicked:");
+    println!("  {}", info.message());
+    match info.location() {
+        Some(location) => println!("  At: {location}"),
+        None => {},
+    }
 
     loop {}
 }
 
 #[no_mangle]
 pub extern "C" fn kernel_main(bootinfo: *mut BootInfo) {
-    let bootinfo = unsafe { &*bootinfo };
-    COM1.lock().initialize();
+    let bootinfo = unsafe { &mut *bootinfo };
 
-    com1_println!("Hello world from the kernel!");
-    com1_println!("Bootinfo valid: {}", bootinfo.has_valid_magic());
+    logger::initialize_com1();
+    logger::initialize_screen_output(bootinfo);
 
-    let mut frame_buffer = FrameBuffer::from_boot_data(&bootinfo)
-        .expect("Could not create frame buffer.");
-    frame_buffer.fill(Color::new(0x000000));
+    println!("Hello World from the kernel");
 
-    let font_renderer = FontRenderer::create(
-        bootinfo.font_file_address.as_u64() as *mut u8, 
-        bootinfo.font_file_size, 
-        frame_buffer
-    ).expect("Could not create font renderer");
-    
-    let mut layout_renderer = LayoutRenderer::new(font_renderer);
-    layout_renderer.print_string("Hello World from the kernel!\n");
-    layout_renderer.print_string("Kernel Finished\n");
+    let allocator = unsafe { 
+        PageFrameAllocator::new_from_bitmap(
+            &mut bootinfo.meminfo.bitmap, 
+            bootinfo.meminfo.free_memory, 
+            bootinfo.meminfo.used_memory
+        ) 
+    };
+    println!("Initialized Page Allocator:");
+    println!(
+        "  Free Memory: {:#X} ({} GB, {} MB, {} KB)", 
+        allocator.get_free_ram(), 
+        allocator.get_free_ram() / (1024 * 1024 * 1024), 
+        allocator.get_free_ram() / (1024 * 1024) % 1024, 
+        allocator.get_free_ram() / 1024 % 1024
+    );
+    println!(
+        "  Used Memory: {:#X} ({} GB, {} MB, {} KB)", 
+        allocator.get_used_ram(), allocator.get_used_ram() / (1024 * 1024 * 1024), 
+        allocator.get_used_ram() / (1024 * 1024) % 1024, 
+        allocator.get_used_ram() / 1024 % 1024);
+    let total_memory = allocator.get_free_ram() + allocator.get_used_ram();
+    println!(
+        "  Total Usable Memory: {:#X} ({} GB, {} MB, {} KB)", 
+        total_memory, total_memory / (1024 * 1024 * 1024), 
+        total_memory / (1024 * 1024) % 1024, 
+        total_memory / 1024 % 1024
+    );
+
+    println!("Kernel Finished");
+
+    log_debug!("Kernel", "Debug Test");
+    log_info!("Kernel", "Yes");
+    log_warn!("Kernel", "Uh oh");
+    log_error!("Kernel", "Oh no!");
+    log_critical!("Kernel", "BOOM");
 
     loop {}
 }

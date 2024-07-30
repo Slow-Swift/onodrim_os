@@ -1,7 +1,6 @@
 use core::fmt;
 
-use crate::font_renderer::FontRenderer;
-
+use crate::{font_renderer::FontRenderer, graphics_renderer::Color};
 
 pub struct LayoutRenderer {
     font_renderer: FontRenderer,
@@ -50,6 +49,10 @@ impl LayoutRenderer {
                 _ => self.print_char(0x04),
             }
         }
+    }
+
+    pub fn set_colors(&mut self, (foreground, background): (Color, Color)) {
+        self.font_renderer.set_colors(foreground, background);
     }
 
     fn newline(&mut self) {

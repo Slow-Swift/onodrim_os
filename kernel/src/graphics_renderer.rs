@@ -1,4 +1,6 @@
 
+use core::ops;
+
 use bootinfo::BootInfo;
 
 use crate::errors::Error;
@@ -7,7 +9,7 @@ use crate::errors::Error;
 pub struct Color(pub u8, pub u8, pub u8);
 
 impl Color {
-    pub fn new(hex_code: u32) -> Color {
+    pub const fn new(hex_code: u32) -> Color {
         Color (
             ((hex_code >> 16) & 0xFF) as u8,
             ((hex_code >> 8) & 0xFF) as u8,
@@ -23,6 +25,33 @@ impl Color {
 
     #[inline]
     pub fn blue(&self) -> u8 { self.2 }
+
+    #[inline]
+    pub fn hex_code(&self) -> u32 { (self.red() as u32) << 16 | (self.green() as u32) << 8 | (self.blue() as u32) }
+}
+
+impl ops::Div<u8> for Color {
+    type Output = Color;
+
+    fn div(self, rhs: u8) -> Color {
+        Color(
+            self.red() / rhs,
+            self.green() / rhs,
+            self.blue() / rhs,
+        )
+    }
+}
+
+impl ops::Mul<u8> for Color {
+    type Output = Color;
+
+    fn mul(self, rhs: u8) -> Color {
+        Color(
+            self.red() * rhs,
+            self.green() * rhs,
+            self.blue() * rhs,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
