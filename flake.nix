@@ -2,19 +2,25 @@
   description = "Rust DevShell";
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.05";
+
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
-  outputs = {self, nixpkgs}:
+  outputs = {self, nixpkgs, rust-overlay}:
     let
       system = "x86_64-linux";
-      pkgs = import nixpkgs { inherit system; }
+      overlays = [ (import rust-overlay) ];
+      pkgs = import nixpkgs { inherit system overlays; };
+      rust = pkgs.rust-bin.nightly.latest.default.override {
+        extensions = [ "rust-src" ];
+        targets = [ "x86_64-unknown-uefi" "x86_64-unknown-none" ];
+      };
     in {
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs;[
-          rustc
-          cargo
+          rust
           rust-analyzer
+          qemu
         ];
       };
-    }
+    };
 }
