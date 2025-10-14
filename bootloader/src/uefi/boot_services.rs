@@ -74,7 +74,11 @@ impl BootServices {
         let mut guid = graphics_output::PROTOCOL_GUID;
         let registration: *mut core::ffi::c_void = null_mut();
         let protocol_ptr = self.locate_protocol(&mut guid, registration)? as *mut graphics_output::Protocol;
-        Ok(GraphicsOutputProtocol::new(protocol_ptr))
+
+        // Safety: This should be safe because the protocol pointer just got returned from Boot Services
+        unsafe {
+            Ok(GraphicsOutputProtocol::new(protocol_ptr))
+        }
     }
 
     pub fn get_memory_map(&self) -> Result<GetMemoryMapOutput, efi::Status> {

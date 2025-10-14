@@ -10,3 +10,8 @@ x86_64_hardware = { path = "../libraries/x86_64_hardware" }
 elf = { path = "../libraries/elf" }
 acpi_system_tables = { path = "../libraries/acpi_system_tables" }
 bitmap = { path = "../libraries/bitmap" }
+
+[[bin]]
+name = "bootloader"
+test = false
+bench = false

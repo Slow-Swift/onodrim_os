@@ -8,9 +8,11 @@ use crate::meminfo::MemInfo;
 // This could be changed to something more significant like the bootloader name
 const BOOTINFO_MAGIC: [u8; 4] = [b'B', b'O', b'O', b'T'];
 
+/// Used to store information gathered by the bootloader
+/// which is later passed to the kernel
 #[repr(C)]
 pub struct BootInfo {
-    magic: [u8; 4],
+    magic: [u8; 4],  
     pub framebuffer: FrameBuffer,
     pub page_table_memory_offset: u64,
     pub next_availiable_kernel_page: VirtualAddress,

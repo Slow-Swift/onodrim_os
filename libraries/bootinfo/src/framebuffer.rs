@@ -1,5 +1,6 @@
 use x86_64_hardware::memory::PhysicalAddress;
 
+/// Represents a frame buffer which can be drawn to
 #[repr(C)]
 pub struct FrameBuffer {
     pub base_address: PhysicalAddress,

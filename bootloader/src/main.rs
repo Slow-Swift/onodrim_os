@@ -15,17 +15,27 @@ mod unicode;
 mod loaded_asset_list;
 mod elf_section_list;
 
+/// Called by rust when code panics
+/// 
+/// This is needed because the bootloader is running without
+/// the standard library. This means that there is no builtin 
+/// panic handler available.
+///
+/// This function will never return
 #[panic_handler]
 fn panic_handler(info: &core::panic::PanicInfo) -> ! {
+    // Print the error message to the screen
     com1_println!("Panic:");
     com1_println!("  {}", info.message());
 
+    // If we have information about what code panicked we can print that too
     match info.location() {
         Some(location) => com1_println!("  {location}"),
         None => {},
     }
-    loop {};
+    loop {}; 
 }
+
 
 #[no_mangle]
 pub extern "C" fn efi_main(image_handle: efi::Handle, system_table: *const efi::SystemTable) -> efi::Status {
@@ -33,6 +43,7 @@ pub extern "C" fn efi_main(image_handle: efi::Handle, system_table: *const efi::
     
     let result = main(image_handle, system_table);
 
+    // The program won't reach this point unless the bootloader or kernel crashes or restarts
     match result {
         Ok(()) => efi::Status::SUCCESS,
         Err(status) => {
@@ -44,12 +55,13 @@ pub extern "C" fn efi_main(image_handle: efi::Handle, system_table: *const efi::
 
 fn main(image_handle: efi::Handle, system_table: SystemTableWrapper) -> Result<(), efi::Status> {
     com1_println!("Bootloader loaded");
-    let bootinfo_size_pages = (core::mem::size_of::<BootInfo>() + PAGE_SIZE as usize - 1) / PAGE_SIZE as usize;
-    let bootinfo = system_table.boot_services().allocate_pages::<BootInfo>(r_efi::system::LOADER_DATA, bootinfo_size_pages)?;
-    let bootinfo = unsafe { &mut *bootinfo };
-    (*bootinfo) = BootInfo::default();
-    bootinfo.framebuffer = initialize_gop(system_table)?;
 
+    // This is needed later for something
+    let bootinfo_size_pages = (core::mem::size_of::<BootInfo>() + PAGE_SIZE as usize - 1) / PAGE_SIZE as usize;
+
+    let bootinfo = setup_boot_info(&system_table)?;
+    bootinfo.framebuffer = get_graphics_protocol_frame_buffer(&system_table)?;
+    
     let (kernel_asset_list, entry_point) = load_kernel(image_handle, system_table)?;
 
     let (font_file_address, font_file_page_count, font_file_size) = load_font(image_handle, &system_table)?;
@@ -163,6 +175,17 @@ fn main(image_handle: efi::Handle, system_table: SystemTableWrapper) -> Result<(
     unsafe { kernel_start(bootinfo) };
 
     return Ok(())
+}
+
+/// Allocates memory for the bootinfo and initializes it with empty data
+fn setup_boot_info(system_table: &SystemTableWrapper) -> Result<&mut BootInfo, efi::Status> {
+    let bootinfo_size_pages = (core::mem::size_of::<BootInfo>() + PAGE_SIZE as usize - 1) / PAGE_SIZE as usize;
+    let bootinfo = system_table.boot_services()
+        .allocate_pages::<BootInfo>(r_efi::system::LOADER_DATA, bootinfo_size_pages)?;
+    let bootinfo = unsafe { &mut *bootinfo };
+    (*bootinfo) = BootInfo::default();
+
+    Ok(bootinfo)
 }
 
 fn load_kernel(image_handle: efi::Handle, system_table: uefi::SystemTableWrapper) -> Result<(LoadedAssetList, VirtualAddress), efi::Status> {
@@ -304,7 +327,8 @@ fn validate_elf(header: &elf::ElfHeaderCommon) -> Result<(), efi::Status> {
     Ok(())
 }
 
-fn initialize_gop(system_table: uefi::SystemTableWrapper) -> Result<bootinfo::FrameBuffer, efi::Status>{
+/// Uses the graphics output protocol to get access to a frame buffer
+fn get_graphics_protocol_frame_buffer(system_table: &uefi::SystemTableWrapper) -> Result<bootinfo::FrameBuffer, efi::Status>{
     let gop = match system_table.boot_services().get_graphics_output_protocol() {
         Ok(gop) => gop,
         Err(status) => {
