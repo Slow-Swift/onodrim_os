@@ -19,7 +19,7 @@ impl GraphicsOutputProtocol {
             self.mode().info().horizontal_resolution(),
             self.mode().info().vertical_resolution(),
             self.mode().info().pixels_per_scan_line(),
-        )
+        ).unwrap()
     }
 
     fn mode(&self) -> GopMode {
