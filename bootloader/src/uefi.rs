@@ -8,4 +8,5 @@ mod file_protocol;
 mod configuration_table;
 mod memory_map;
 
-pub use system_table::SystemTableWrapper;
+pub use system_table::BootSystemTable;
+pub use boot_services::BootServices;

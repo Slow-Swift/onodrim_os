@@ -3,9 +3,9 @@ use core::{ffi::c_void, ptr::{addr_of, null_mut}};
 use r_efi::{efi, protocols::file::{self, Info}};
 use x86_64_hardware::{com1_println, memory::{FrameAllocator, PhysicalAddress, PAGE_SIZE}};
 
-use crate::unicode::{str_utf8_to_utf16, EncodeStatus};
+use crate::{uefi::BootServices, unicode::{str_utf8_to_utf16, EncodeStatus}};
 
-use super::SystemTableWrapper;
+use super::BootSystemTable;
 
 pub struct FileProtocol {
     file_ptr: *mut file::Protocol,
@@ -72,9 +72,9 @@ impl FileProtocol {
         }
     }
 
-    pub fn get_info(&self, system_table: &SystemTableWrapper) -> Result<FileInfo, efi::Status> {
+    pub fn get_info(&self, boot_services: &BootServices) -> Result<FileInfo, efi::Status> {
         let mut guid = file::INFO_ID;
-        let ptr = system_table.boot_services().allocate_pages(r_efi::system::LOADER_DATA, 1)?;
+        let ptr = boot_services.allocate_pages(r_efi::system::LOADER_DATA, 1)?;
         let mut size = PAGE_SIZE as usize;
 
         let status = unsafe { ((*self.file_ptr).get_info)(self.file_ptr, &mut guid, &mut size, ptr) };
@@ -94,7 +94,7 @@ impl FileProtocol {
             }
         };
 
-        unsafe { system_table.boot_services().free_pages(ptr, 1)?; }
+        unsafe { boot_services.free_pages(ptr, 1)?; }
 
         Ok(file_info)
     }

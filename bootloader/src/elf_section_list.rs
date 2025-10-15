@@ -3,7 +3,7 @@ use core::cmp::{max, min};
 use r_efi::efi;
 use x86_64_hardware::memory::{PhysicalAddress, VirtualAddress, PAGE_OFFSET_MASK, PAGE_SIZE};
 
-use crate::uefi;
+use crate::uefi::{BootServices};
 
 #[derive(Copy, Clone)]
 pub struct ElfSection {
@@ -70,10 +70,10 @@ pub struct ElfSectionList {
 }
 
 impl ElfSectionList {
-    pub fn new(item_count: usize, system_table: uefi::SystemTableWrapper) -> Result<ElfSectionList, efi::Status> {
+    pub fn new(item_count: usize, boot_services: &BootServices) -> Result<ElfSectionList, efi::Status> {
         let min_mem_size = size_of::<ElfSection>() * item_count;
         let num_pages = (min_mem_size + PAGE_SIZE as usize - 1) / PAGE_SIZE as usize;
-        let list_ptr = system_table.boot_services().allocate_pages::<ElfSection>(r_efi::system::LOADER_DATA, num_pages)?;
+        let list_ptr = boot_services.allocate_pages::<ElfSection>(r_efi::system::LOADER_DATA, num_pages)?;
 
         return Ok(ElfSectionList {
             list_ptr,

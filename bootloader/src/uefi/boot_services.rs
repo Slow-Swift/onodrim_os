@@ -9,8 +9,12 @@ pub struct BootServices {
 }
 
 impl BootServices {
-    
-    pub fn new(boot_services_ptr: *mut efi::BootServices) -> BootServices {
+    /// Create a new wrapper around the EFI Boot Services
+    /// 
+    /// ## Safety
+    /// It is up to the caller to ensure this actually points to a valid boot services 
+    /// that has not yet exited and that no other BootServices is created with the same pointer
+    pub unsafe fn new(boot_services_ptr: *mut efi::BootServices) -> BootServices {
         BootServices { boot_services_ptr }
     }
 
@@ -125,7 +129,13 @@ impl BootServices {
         Ok(output)
     }
 
-    pub fn exit_boot_services(&self, handle: efi::Handle, map_key: usize) -> Result<(), efi::Status> {
+    /// Exit the boot services
+    /// 
+    /// ## Safety
+    /// The caller must ensure the boot services are not used again and must ensure that all previously allocated
+    /// memory remains allocated by whatever memory allocator takes over for the boot services
+    pub unsafe fn exit_boot_services(&mut self, handle: efi::Handle, map_key: usize) -> Result<(), efi::Status> {
+        // Safety: This should be safe assuming that boot services
         let status = unsafe {
             ((*self.boot_services_ptr).exit_boot_services)(handle, map_key)
         };
