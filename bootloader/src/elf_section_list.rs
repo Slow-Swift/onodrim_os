@@ -22,44 +22,60 @@ impl ElfSection {
         self.file_address.increment_pages(self.num_file_pages)
     }
 
-    // Determines whether ther virtual address spaces of these two sections overlap
+    /// Determines whether the virtual address spaces of these two sections overlap
     pub fn has_virtual_overlap(&self, other: ElfSection) -> bool {
         (self.virtual_address <= other.virtual_address) && (self.get_mem_end() > other.virtual_address) ||
         (other.virtual_address <= self.virtual_address) && (other.get_mem_end() > self.virtual_address)
     }
 
+    /// Determine whether the offset from file to virtual address is the same for two sections
     pub fn has_same_offset(&self, other: ElfSection) -> bool {
-        if self.file_address.as_u64() < self.virtual_address.as_u64() {
-            if other.file_address.as_u64() >= other.virtual_address.as_u64() { return false; }
-            let self_offset = self.virtual_address.as_u64() - self.file_address.as_u64();
-            let other_offset = other.virtual_address.as_u64() - other.file_address.as_u64();
-            return self_offset == other_offset;
-        } else {
-            if other.file_address.as_u64() < other.virtual_address.as_u64() { return false; }
-            let self_offset = self.file_address.as_u64() - self.virtual_address.as_u64();
-            let other_offset = other.file_address.as_u64() - other.virtual_address.as_u64();
-            return self_offset == other_offset;
-        }
+        // Collect the values in variables for clarity and brevity
+        let self_file_addr = self.file_address.as_u64();
+        let self_virt_addr = self.virtual_address.as_u64();
+        let other_file_addr = other.file_address.as_u64();
+        let other_virt_addr = other.virtual_address.as_u64();
+
+        // Make sure the absolute difference between the addresses are the same and check that they differ in the same direction
+        let same_direction = (self_file_addr <= self_virt_addr) == (other_file_addr <= other_virt_addr);
+        let offset_equal = self_virt_addr.abs_diff(self_file_addr) == other_virt_addr.abs_diff(other_file_addr);
+        return same_direction && offset_equal;
     }
 
-    pub fn combine(&mut self, other: ElfSection) -> bool {
-        if !self.has_virtual_overlap(other) { return false }
-        if !self.has_same_offset(other) { return false; } // TODO: Should error
+    /// Combine two ELF sections if they overlap or are contiguous in virtual space and in file space.
+    /// 
+    /// If it is possible to combine these sections, the current section is updated with the new data and true is returned.
+    /// If it is not possible, false is returned.
+    /// If the sections overlap in virtual space but are misaligned in the file, an error is returned.
+    pub fn combine_if_possible(&mut self, other: ElfSection) -> Result<bool, efi::Status> {
+        // If these two sections overlap in virtual memory then we will try to merge them
+        if !self.has_virtual_overlap(other) { return Ok(false) }
+
+        // In order to merge them they must be contiguous in the file. We can check this by checking
+        // that they have the same offset between virtual and file address.
+        // I think it is possible in theory for sections to overlap in virtual space but not be contiguous
+        // in the file. According to the ELF specs the page alignment should be consistent but it is theoretically
+        // possible for them to live in different physical pages. 
+        // For now I will keep it like this and just error if they aren't contiguous.
+        if !self.has_same_offset(other) { return Err(efi::Status::COMPROMISED_DATA) } 
         
+        // Get the range for the merged section
         let min_file_address = min(self.file_address, other.file_address);
         let max_file_address = max(self.get_file_end(), other.get_file_end());
         let min_virtual_address = min(self.virtual_address, other.virtual_address);
         let max_virtual_address = max(self.get_mem_end(), other.get_mem_end());
 
+        // Determine the number of pages required
         let file_pages = (max_file_address.as_u64() - min_file_address.as_u64()) / PAGE_SIZE;
         let memory_pages = (max_virtual_address.as_u64() - min_virtual_address.as_u64()) / PAGE_SIZE;
 
+        // Update the section
         self.file_address = min_file_address;
         self.virtual_address = min_virtual_address;
         self.num_file_pages = file_pages;
         self.num_mem_pages = memory_pages;
 
-        return true;
+        return Ok(true);
     }
 }
 
@@ -86,7 +102,7 @@ impl ElfSectionList {
         return (PAGE_SIZE as usize * self.num_pages) / size_of::<ElfSectionList>();
     }
 
-    pub fn add_section(&mut self, section_header: &elf::ElfPhysicalHeader64) {        
+    pub fn add_section(&mut self, section_header: &elf::ElfPhysicalHeader64) -> Result<(), efi::Status> {        
         // Expand program section sizes to nearest pages
         let page_offset = section_header.p_offset & PAGE_OFFSET_MASK;
         let num_file_pages = (section_header.p_filesz + page_offset + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -102,13 +118,13 @@ impl ElfSectionList {
         for i in 0..self.num_items {
             let mut other_section = self.get_section(i)
                 .expect("Should be impossible since the index is valid");
-            if other_section.combine(section) { 
+            if other_section.combine_if_possible(section)? { 
                 self.set_section(other_section, i);
-                return; 
+                return Ok(()); 
             }
         }
 
-        if self.max_items() == self.num_items { return; } // Error: Could not add
+        if self.max_items() == self.num_items { return Ok(()); } // Error: Could not add
         self.set_section(section, self.num_items);
 
         for i in (0..self.num_items).rev() {
@@ -118,6 +134,11 @@ impl ElfSectionList {
             self.set_section(section, i);
         }
         self.num_items += 1;
+        Ok(())
+    }
+
+    pub fn merge_sections(&mut self) {
+
     }
 
     pub fn get_section(&self, index: usize) -> Option<ElfSection> {
