@@ -34,12 +34,18 @@ pub fn load_kernel(image_handle: efi::Handle, boot_services: &BootServices) -> R
 
         match program_header.p_type() {
             elf::ElfPhysicalType::Load => {
-                kernel_section_list.add_section(&program_header);
-                com1_println!("  Loadable section {}: \tms({:#X}), \tfs({:#X}), \tvaddr({:#X})", header_index, program_header.p_memsz, program_header.p_filesz, program_header.p_vaddr);
+                kernel_section_list.add_section(&program_header)
+                    .expect("This should not happen because there should be enough space in the ELF Section List");
+                com1_println!(
+                    "  Loadable section {}: \tms({:#X}), \tfs({:#X}), \tvaddr({:#X}) \tfaddr({:#X})", 
+                    header_index, program_header.p_memsz, program_header.p_filesz, program_header.p_vaddr, program_header.p_offset
+                );
             },
             _ => {},
         }
     }
+    kernel_section_list.merge_sections();
+    com1_println!("Merged down to {} sections", kernel_section_list.size());
 
     for section in kernel_section_list.iter() {
         let section_buffer = boot_services.allocate_pages::<c_void>(
