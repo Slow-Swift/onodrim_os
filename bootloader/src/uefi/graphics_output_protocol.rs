@@ -1,8 +1,12 @@
 use bootinfo::FrameBuffer;
-use r_efi::protocols::graphics_output;
+use r_efi::{efi, protocols::graphics_output};
 use x86_64_hardware::memory::PhysicalAddress;
 
+use crate::uefi::BootServices;
+
 pub struct GraphicsOutputProtocol {
+    device_handle: efi::Handle,
+    agent_handle: efi::Handle,
     graphics_output_protocol_ptr: *mut graphics_output::Protocol,
 }
 
@@ -11,8 +15,24 @@ impl GraphicsOutputProtocol {
     /// 
     /// Safety: It is up to the caller to ensure that the GraphicsOutputProtocol pointer
     /// actually points to a valid UEFI graphics output protocal
-    pub unsafe fn new(graphics_output_protocol_ptr: *mut graphics_output::Protocol)  -> GraphicsOutputProtocol {
-        GraphicsOutputProtocol { graphics_output_protocol_ptr }
+    pub unsafe fn new(
+        device_handle: efi::Handle, 
+        agent_handle: efi::Handle,
+        graphics_output_protocol_ptr: *mut graphics_output::Protocol
+    )  -> GraphicsOutputProtocol {
+        GraphicsOutputProtocol { 
+            device_handle, 
+            agent_handle,
+            graphics_output_protocol_ptr 
+        }
+    }
+
+    pub fn close(self, boot_services: &BootServices) -> Result<(), efi::Status> {
+        boot_services.close_protocol(
+            self.device_handle, 
+            self.agent_handle, 
+            graphics_output::PROTOCOL_GUID
+        )
     }
 
     /// Get the framebuffer from the GraphicsOutputProtocol

@@ -62,7 +62,7 @@ fn main(image_handle: efi::Handle, system_table: BootSystemTable) -> Result<(), 
     let bootinfo_size_pages = (core::mem::size_of::<BootInfo>() + PAGE_SIZE as usize - 1) / PAGE_SIZE as usize;
 
     let bootinfo = setup_boot_info(&system_table.boot_services)?;
-    bootinfo.framebuffer = get_graphics_protocol_frame_buffer(&system_table.boot_services)?;
+    bootinfo.framebuffer = get_graphics_protocol_frame_buffer(image_handle, &system_table.boot_services)?;
 
     let (kernel_asset_list, entry_point) = load_kernel(image_handle, &system_table.boot_services)?;
 
@@ -73,12 +73,10 @@ fn main(image_handle: efi::Handle, system_table: BootSystemTable) -> Result<(), 
     };
     com1_println!("Exited Boot Services");
 
-
     unsafe {
         // Memory offset is 0 since we haven't set up paging yet
         bootinfo.framebuffer.fill(0, 0);
     }
-
 
     com1_println!("Memory Map:");
     for descriptor in mem_info.map.iter() {
@@ -244,15 +242,17 @@ fn init_page_table_manager(
 }
 
 /// Uses the graphics output protocol to get access to a frame buffer
-fn get_graphics_protocol_frame_buffer(boot_services: &BootServices) -> Result<bootinfo::FrameBuffer, efi::Status>{
-    let gop = match boot_services.get_graphics_output_protocol() {
+fn get_graphics_protocol_frame_buffer(handle: efi::Handle, boot_services: &BootServices) -> Result<bootinfo::FrameBuffer, efi::Status>{
+    let gop = match boot_services.get_graphics_output_protocol(handle) {
         Ok(gop) => gop,
         Err(status) => {
             com1_println!("Cannot load GOP. Status: {status:#?}");
             return Err(status)
         }
     };
-    com1_println!("Loaded GOP");
+    com1_println!("Loaded Graphics Output Protocol");
+    let framebuffer = gop.get_framebuffer();
+    gop.close(boot_services)?;
 
-    return Ok(gop.get_framebuffer());
+    return Ok(framebuffer);
 }

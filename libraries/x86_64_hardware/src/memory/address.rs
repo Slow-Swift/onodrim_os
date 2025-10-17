@@ -8,6 +8,7 @@ pub struct PhysicalAddress(u64);
 impl PhysicalAddress {
     #[inline]
     pub const fn new(addr: u64) -> PhysicalAddress {
+        // TODO: Try to work out why this is page aligned
         PhysicalAddress(addr & PHYSICAL_ADDRESS_MASK)
     }
 

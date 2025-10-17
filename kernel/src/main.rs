@@ -6,6 +6,8 @@ use core::panic::PanicInfo;
 use bootinfo::BootInfo;
 use x86_64_hardware::memory::PageFrameAllocator;
 
+use core::arch::asm;
+
 mod errors;
 mod graphics_renderer;
 mod font_renderer;
@@ -72,5 +74,10 @@ pub extern "C" fn kernel_main(bootinfo: *mut BootInfo) {
     log_error!("Kernel", "Oh no!");
     log_critical!("Kernel", "BOOM");
 
-    loop {}
+    loop {
+        unsafe {
+            asm!("cli");
+            asm!("hlt");
+        }
+    }
 }
