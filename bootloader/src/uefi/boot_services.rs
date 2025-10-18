@@ -1,7 +1,7 @@
 use core::{ffi::c_void, ptr::{self, null_mut}};
 
 use r_efi::{efi, protocols::{graphics_output, loaded_image, simple_file_system}};
-use x86_64_hardware::memory::PAGE_SIZE;
+use x86_64_hardware::{memory::PAGE_SIZE};
 use super::{file_protocol::FileProtocol, graphics_output_protocol::GraphicsOutputProtocol, loaded_image_protocol::LoadedImageProtocol, memory_map::{self, GetMemoryMapOutput}, simple_file_system_protocol::SimpleFileSystemProtocol};
 
 pub struct BootServices {
@@ -97,24 +97,45 @@ impl BootServices {
         }
     }
 
-    pub fn open_volume(&self, h: efi::Handle) -> Result<FileProtocol, efi::Status>{
-        let loaded_image = self.get_loaded_image_protocol(h)?;
-        let file_system = self.get_simple_file_protocol(loaded_image.device_handle())?;
-        file_system.open_volume()
+    /// Open a file at the given path on the provided disk that loaded the image
+    pub fn open_file(
+        &self, image_handle: efi::Handle, path: &str
+    ) -> Result<FileProtocol, efi::Status>{
+        let file_volume = self.open_volume(image_handle)?;
+        let file = file_volume.open_path(
+            path, 
+            efi::protocols::file::MODE_READ, 
+            efi::protocols::file::READ_ONLY
+        )?;
+        Ok(file)
     }
 
-    pub fn get_loaded_image_protocol(&self, h: efi::Handle) -> Result<LoadedImageProtocol, efi::Status>{
+    /// Open the root directory of the volume where image handle is loaded
+    pub fn open_volume(&self, image_handle: efi::Handle) -> Result<FileProtocol, efi::Status>{
+        let loaded_image = self.get_loaded_image_protocol(image_handle)?;
+        let file_system = self.get_simple_file_protocol(loaded_image.device_handle(), image_handle)?;
+        let file_protocol = file_system.open_volume()?;
+        loaded_image.close(self)?;
+        file_system.close(self)?;
+
+        Ok(file_protocol)
+    }
+
+    /// Open a LoadedImageProtocol for the given image handle
+    pub fn get_loaded_image_protocol(&self, image_handle: efi::Handle) -> Result<LoadedImageProtocol, efi::Status>{
         let guid = loaded_image::PROTOCOL_GUID;
-        let protocol_ptr = self.open_protocol(h, h, guid, )? as *mut loaded_image::Protocol;
-        return Ok(LoadedImageProtocol::new(protocol_ptr));
+        let protocol_ptr = self.open_protocol(image_handle, image_handle, guid, )? as *mut loaded_image::Protocol;
+        return Ok(LoadedImageProtocol::new(image_handle,image_handle, protocol_ptr));
     }
 
-    pub fn get_simple_file_protocol(&self, h: efi::Handle) -> Result<SimpleFileSystemProtocol, efi::Status> {
+    /// Open a SimpleFileSystemProtocol on the given device handle for the given agent
+    pub fn get_simple_file_protocol(&self, device_handle: efi::Handle, agent_handle: efi::Handle) -> Result<SimpleFileSystemProtocol, efi::Status> {
         let guid = simple_file_system::PROTOCOL_GUID;
-        let protocol_ptr = self.open_protocol(h, h, guid)? as *mut simple_file_system::Protocol;
-        return Ok(SimpleFileSystemProtocol::new(protocol_ptr));
+        let protocol_ptr = self.open_protocol(device_handle, agent_handle, guid)? as *mut simple_file_system::Protocol;
+        return Ok(SimpleFileSystemProtocol::new(device_handle, agent_handle, protocol_ptr));
     }
 
+    /// Open a GraphicsOutputProtocol for the given agent
     pub fn get_graphics_output_protocol(&self, agent_handle: efi::Handle) -> Result<GraphicsOutputProtocol, efi::Status> {
         let guid = graphics_output::PROTOCOL_GUID;
         let (handle, protocol) = self.find_and_open_protocol(agent_handle, guid)?;

@@ -4,7 +4,7 @@ mod simple_text_output_protocol;
 mod graphics_output_protocol;
 mod loaded_image_protocol;
 mod simple_file_system_protocol;
-mod file_protocol;
+pub mod file_protocol;
 mod configuration_table;
 mod memory_map;
 

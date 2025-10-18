@@ -2,15 +2,34 @@ use core::ptr::null_mut;
 
 use r_efi::{efi, protocols::simple_file_system};
 
+use crate::uefi::BootServices;
+
 use super::file_protocol::FileProtocol;
 
 pub struct SimpleFileSystemProtocol {
+    device_handle: efi::Handle,
+    agent_handle: efi::Handle,
     file_system_ptr: *mut simple_file_system::Protocol,
 }
 
 impl SimpleFileSystemProtocol {
-    pub fn new(file_system_ptr: *mut simple_file_system::Protocol) -> SimpleFileSystemProtocol {
-        SimpleFileSystemProtocol { file_system_ptr }
+    pub fn new(
+        device_handle: efi::Handle, 
+        agent_handle: efi::Handle, 
+        protocol_ptr: *mut simple_file_system::Protocol
+    ) -> SimpleFileSystemProtocol {
+        SimpleFileSystemProtocol { 
+            device_handle,
+            agent_handle,
+            file_system_ptr: protocol_ptr 
+        }
+    }
+
+    /// Close the FileSystemProtocol
+    /// 
+    /// I believe it is fine to close this and still have the FileProtocol open
+    pub fn close(self, boot_services: &BootServices) -> Result<(), efi::Status> {
+        boot_services.close_protocol(self.device_handle, self.agent_handle, simple_file_system::PROTOCOL_GUID)
     }
 
     pub fn open_volume(&self) -> Result<FileProtocol, efi::Status>{

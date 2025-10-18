@@ -1,11 +1,9 @@
 use core::{ffi::c_void, ptr::{addr_of, null_mut}};
 
 use r_efi::{efi, protocols::file::{self, Info}};
-use x86_64_hardware::{com1_println, memory::{FrameAllocator, PhysicalAddress, PAGE_SIZE}};
+use x86_64_hardware::memory::PAGE_SIZE;
 
 use crate::{uefi::BootServices, unicode::{str_utf8_to_utf16, EncodeStatus}};
-
-use super::BootSystemTable;
 
 pub struct FileProtocol {
     file_ptr: *mut file::Protocol,

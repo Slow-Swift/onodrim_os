@@ -27,6 +27,7 @@ impl GraphicsOutputProtocol {
         }
     }
 
+    /// Close the graphics output protocol
     pub fn close(self, boot_services: &BootServices) -> Result<(), efi::Status> {
         boot_services.close_protocol(
             self.device_handle, 

@@ -64,15 +64,23 @@ fn main(image_handle: efi::Handle, system_table: BootSystemTable) -> Result<(), 
     let bootinfo = setup_boot_info(&system_table.boot_services)?;
     bootinfo.framebuffer = get_graphics_protocol_frame_buffer(image_handle, &system_table.boot_services)?;
 
-    let (kernel_asset_list, entry_point) = load_kernel(image_handle, &system_table.boot_services)?;
+    // Load the kernel into memory
+    let (kernel_asset_list, entry_point) = load_kernel(
+        image_handle, 
+        &system_table.boot_services
+    )?;
 
-    let (font_file_address, font_file_page_count, font_file_size) = load_font(image_handle, &system_table.boot_services)?;
+    // Load the font file into memory
+    let (font_file_address, font_file_page_count, font_file_size) = 
+        load_font(image_handle, &system_table.boot_services)?;
 
+    // Exit boot services
     let (_runtime_system_table, mem_info) = unsafe {
         system_table.exit_boot_services(image_handle)?
     };
     com1_println!("Exited Boot Services");
 
+    // Clear the screen
     unsafe {
         // Memory offset is 0 since we haven't set up paging yet
         bootinfo.framebuffer.fill(0, 0);
@@ -190,17 +198,16 @@ fn setup_boot_info(boot_services: &BootServices) -> Result<&'static mut BootInfo
 
 fn load_font(image_handle: efi::Handle, boot_services: &BootServices) -> Result<(PhysicalAddress, usize, usize), efi::Status>{
     com1_println!("Loading Font");
-    let file_volume = boot_services.open_volume(image_handle)?;
-    let font_file = file_volume.open_path(
-        "kernel/fonts/ascii.psf", 
-        efi::protocols::file::MODE_READ, 
-        efi::protocols::file::READ_ONLY
+    let font_file = boot_services.open_file(
+        image_handle, "kernel/fonts/ascii.psf"
     )?;
 
+    // Determine the number of pages required for the file
     let file_info = font_file.get_info(boot_services)?;
     let page_count = ((file_info.file_size + PAGE_SIZE - 1) / PAGE_SIZE) as usize;
     com1_println!("Font File Size: {:#X}, p({:#X})", file_info.file_size, page_count);
 
+    // Read the font-file into memory
     let pages = boot_services.allocate_pages(r_efi::system::LOADER_DATA, page_count)?;
     let mut buffer_size = page_count * PAGE_SIZE as usize;
     font_file.set_position(0)?;
