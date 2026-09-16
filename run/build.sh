@@ -3,7 +3,7 @@ set -e
 cd bootloader
 cargo build
 cd ../kernel
-cargo build
+cargo build -Zjson-target-spec
 cd ..
 
 BOOTLOADER=$(pwd)/target/x86_64-unknown-uefi/debug/bootloader.efi

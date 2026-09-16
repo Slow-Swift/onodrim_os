@@ -17,8 +17,8 @@ pub trait FrameAllocator {
 
 struct PageFrameAllocatorInner {
     pub page_bitmap: Bitmap,
-    free_memory: u64,
-    used_memory: u64,
+    num_pages: u64,
+    free_pages: u64,
     last_allocated_page: usize,
 }
 
@@ -26,16 +26,18 @@ impl PageFrameAllocatorInner {
     pub const unsafe fn new_uninitialized() -> PageFrameAllocatorInner {
         PageFrameAllocatorInner {
             page_bitmap: Bitmap::new_uninitialized(),
-            free_memory: 0,
-            used_memory: 0,
+            num_pages: 0,
+            free_pages: 0,
             last_allocated_page: 0,
         }
     }
 
-    pub unsafe fn init(&mut self, page_bitmap: *mut Bitmap, free_memory: u64, used_memory: u64) {
+    pub unsafe fn init(
+        &mut self, page_bitmap: *mut Bitmap, num_pages: u64, free_pages: u64,
+    ) {
         self.page_bitmap = *page_bitmap;
-        self.free_memory = free_memory;
-        self.used_memory = used_memory;
+        self.free_pages = free_pages;
+        self.num_pages = num_pages;
         self.last_allocated_page = 0;
     }
 
@@ -44,11 +46,14 @@ impl PageFrameAllocatorInner {
         if self.page_bitmap.get(page_number) { return Err(AllocError::AlreadyUsed); }
 
         if self.page_bitmap.set(page_number, true) {
-            self.free_memory -= PAGE_SIZE;
-            self.used_memory += PAGE_SIZE;
+            self.free_pages -= 1;
         }
 
         Ok(())
+    }
+
+    pub fn get_used_pages(&self) -> u64 {
+        self.num_pages - self.free_pages
     }
 
     fn request_page(&mut self) -> Result<PhysicalAddress, AllocError> {
@@ -71,8 +76,7 @@ impl PageFrameAllocatorInner {
 
         // This should always be true since self.page_bitmap.get returned false
         if self.page_bitmap.set(page_number, false) {
-            self.free_memory += PAGE_SIZE;
-            self.used_memory -= PAGE_SIZE;
+            self.free_pages += 1;
             if self.last_allocated_page > page_number {
                 self.last_allocated_page = page_number
             }
@@ -87,12 +91,12 @@ pub struct PageFrameAllocator {
 }
 
 impl PageFrameAllocator {
-    pub unsafe fn new_from_bitmap(page_bitmap: *mut Bitmap, free_memory: u64, used_memory: u64) -> PageFrameAllocator {
+    pub unsafe fn new_from_bitmap(page_bitmap: *mut Bitmap, num_pages: u64, free_pages: u64) -> PageFrameAllocator {
         PageFrameAllocator::new(
             PageFrameAllocatorInner {
                 page_bitmap: *page_bitmap,
-                free_memory,
-                used_memory,
+                num_pages,
+                free_pages,
                 last_allocated_page: 0,
             }
         )
@@ -108,8 +112,8 @@ impl PageFrameAllocator {
         )
     }
 
-    pub unsafe fn init(&mut self, page_bitmap: *mut Bitmap, free_memory: u64, used_memory: u64) {
-        self.lockable_allocator.lock().init(page_bitmap, free_memory, used_memory);
+    pub unsafe fn init(&mut self, page_bitmap: *mut Bitmap, num_pages: u64, free_pages: u64) {
+        self.lockable_allocator.lock().init(page_bitmap, num_pages, free_pages);
     }
 
     pub fn page_bitmap(&self) -> Bitmap {
@@ -117,11 +121,11 @@ impl PageFrameAllocator {
     }
 
     pub fn get_free_ram(&self) -> u64 {
-        self.lockable_allocator.lock().free_memory
+        self.lockable_allocator.lock().free_pages * PAGE_SIZE
     }
 
     pub fn get_used_ram(&self) -> u64 {
-        self.lockable_allocator.lock().used_memory
+        self.lockable_allocator.lock().get_used_pages() * PAGE_SIZE
     }
 
     pub fn free_pages(&self, address: PhysicalAddress, page_count: usize) -> Result<(), AllocError> {

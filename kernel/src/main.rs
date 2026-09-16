@@ -68,12 +68,6 @@ pub extern "C" fn kernel_main(bootinfo: *mut BootInfo) {
 
     println!("Kernel Finished");
 
-    log_debug!("Kernel", "Debug Test");
-    log_info!("Kernel", "Yes");
-    log_warn!("Kernel", "Uh oh");
-    log_error!("Kernel", "Oh no!");
-    log_critical!("Kernel", "BOOM");
-
     loop {
         unsafe {
             asm!("cli");

@@ -75,7 +75,7 @@ fn main(image_handle: efi::Handle, system_table: BootSystemTable) -> Result<(), 
         load_font(image_handle, &system_table.boot_services)?;
 
     // Exit boot services
-    let (_runtime_system_table, mem_info) = unsafe {
+    let (_runtime_system_table, memory_map) = unsafe {
         system_table.exit_boot_services(image_handle)?
     };
     com1_println!("Exited Boot Services");
@@ -86,20 +86,23 @@ fn main(image_handle: efi::Handle, system_table: BootSystemTable) -> Result<(), 
         bootinfo.framebuffer.fill(0, 0);
     }
 
-    com1_println!("Memory Map:");
-    for descriptor in mem_info.map.iter() {
-        com1_println!("  {:?}: {:#X} -> {:#X} p({})", descriptor.mem_type(), descriptor.phys_addr.as_u64(), descriptor.max_physical_address().as_u64(), descriptor.num_pages)
-    }
+    com1_println!("{}", memory_map);
 
-    let mut allocator = mem_info.map.init_frame_allocator();
-    let max_physical_address = mem_info.map.max_physical_address();
-    let max_usable_address = mem_info.map.max_usable_physical_address();
-    mem_info.map.free_pages(&mut allocator).expect("Alloc error on free memory map. This should be impossible.");
+    // Create a memory allocator to manage the memory
+    let mut allocator: PageFrameAllocator = memory_map.init_frame_allocator();
+    let max_physical_address = memory_map.max_physical_address();
+    let max_usable_address = memory_map.max_usable_physical_address();
+
+    // Actually it might be good to keep the memory map around so we can free the BootServices memory later
+    // Why aren't we freeing the boot services data right now? Because it is used by the page table I think
+    // We no longer need the memory map. 
+    memory_map.free_pages(&mut allocator).expect("Alloc error on free memory map. This should be impossible.");
     com1_println!("Availiable Memory: {:#X} p({})", allocator.get_free_ram(), (allocator.get_free_ram() + PAGE_SIZE - 1) / PAGE_SIZE);
     com1_println!("Used Memory: {:#X} p({})", allocator.get_used_ram(), (allocator.get_used_ram() + PAGE_SIZE - 1) / PAGE_SIZE);
     com1_println!("Total Usable Memory: {:#X} p({})", max_usable_address.as_u64(), (max_usable_address.as_u64() + PAGE_SIZE - 1) / PAGE_SIZE);
     com1_println!("Total System Memory: {:#X} p({})", max_physical_address.as_u64(), (max_physical_address.as_u64() + PAGE_SIZE - 1) / PAGE_SIZE);
 
+    // Find the lowest virtual address of the kernel
     let mut kernel_base_address = VirtualAddress::new(MAX_VIRTUAL_ADDRESS);
     for asset in kernel_asset_list.iter() {
         if asset.virtual_address < kernel_base_address {

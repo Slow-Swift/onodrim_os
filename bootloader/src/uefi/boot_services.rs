@@ -2,7 +2,9 @@ use core::{ffi::c_void, ptr::{self, null_mut}};
 
 use r_efi::{efi, protocols::{graphics_output, loaded_image, simple_file_system}};
 use x86_64_hardware::{memory::PAGE_SIZE};
-use super::{file_protocol::FileProtocol, graphics_output_protocol::GraphicsOutputProtocol, loaded_image_protocol::LoadedImageProtocol, memory_map::{self, GetMemoryMapOutput}, simple_file_system_protocol::SimpleFileSystemProtocol};
+use crate::uefi::memory_map::EfiMemoryMap;
+
+use super::{file_protocol::FileProtocol, graphics_output_protocol::GraphicsOutputProtocol, loaded_image_protocol::LoadedImageProtocol, memory_map, simple_file_system_protocol::SimpleFileSystemProtocol};
 
 pub struct BootServices {
     boot_services_ptr: *mut efi::BootServices,
@@ -150,48 +152,60 @@ impl BootServices {
         }
     }
 
-    pub fn get_memory_map(&self) -> Result<GetMemoryMapOutput, efi::Status> {
-        let mut output = GetMemoryMapOutput::default();
-        let mut mem_ptr = null_mut();
+    pub fn get_memory_map(&self) -> Result<EfiMemoryMap, efi::Status> {
+        let mut map = EfiMemoryMap::default();
 
         // If the buffer is too small (which it will be since it is 0)
         // this modifies output.map.map_size to tell us how big it needs to be
         let mut status = unsafe {
             ((*self.boot_services_ptr).get_memory_map)(
-                &mut output.map.map_size,
-                mem_ptr as *mut efi::MemoryDescriptor,
-                &mut output.map_key,
-                &mut output.map.descriptor_size,
-                &mut output.descriptor_version,
+                &mut map.size_bytes,
+                ptr::null_mut(),
+                &mut map.map_key,
+                &mut map.descriptor_size,
+                &mut map.descriptor_version,
             )
         };
 
+        // I think this loop is in case allocating pages increases the size of the memory map
         while status == efi::Status::BUFFER_TOO_SMALL {
-            let num_pages = (output.map.map_size + PAGE_SIZE as usize - 1) / PAGE_SIZE as usize;
-            mem_ptr = self.allocate_pages(efi::LOADER_DATA, num_pages)?;
+            let descriptor_pages = (map.size_bytes + PAGE_SIZE as usize - 1) / PAGE_SIZE as usize;
+            let descriptor_buffer = self.allocate_pages(
+                efi::LOADER_DATA, descriptor_pages
+            )?;
 
+            // Try to get the memory descriptors again.
             status = unsafe {
                 ((*self.boot_services_ptr).get_memory_map)(
-                    &mut output.map.map_size,
-                    mem_ptr as *mut efi::MemoryDescriptor,
-                    &mut output.map_key,
-                    &mut output.map.descriptor_size,
-                    &mut output.descriptor_version,
+                    &mut map.size_bytes,
+                    descriptor_buffer,
+                    &mut map.map_key,
+                    &mut map.descriptor_size,
+                    &mut map.descriptor_version,
                 )
             };
 
-            if status != efi::Status::SUCCESS {
-                // This is safe since we are not going to refer to mem_ptr before allocating it again
-                unsafe { self.free_pages(mem_ptr, num_pages) }?;
-                if status != efi::Status::BUFFER_TOO_SMALL { return Err(status) }
-            } else {
-                output.map.num_pages = num_pages;
+            match status {
+                efi::Status::SUCCESS => {
+                    map.num_pages = descriptor_pages;
+                    map.descriptors = descriptor_buffer as *mut memory_map::EfiMemoryDescriptor;
+                    return Ok(map);
+                },
+
+                // Accessing the memory map failed for some reason. Definitely deallocate the buffer.
+                // Try again if it was because the buffer was too small
+                _ => {
+                    // This is safe since we are not going to refer to buffer before allocating it again
+                    unsafe { self.free_pages(descriptor_buffer, descriptor_pages) }?;
+                    
+                    // If it failed for some reason other than too small a buffer then error
+                    if status != efi::Status::BUFFER_TOO_SMALL { return Err(status) }
+                }
             }
         }
 
-        output.map.descriptors = mem_ptr as *mut memory_map::EfiMemoryDescriptor;
-
-        Ok(output)
+        panic!("Code should be unreachable")
+        
     }
 
     /// Exit the boot services

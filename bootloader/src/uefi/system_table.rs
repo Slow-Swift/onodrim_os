@@ -1,5 +1,5 @@
 use r_efi::efi;
-use crate::uefi::memory_map::GetMemoryMapOutput;
+use crate::uefi::memory_map::EfiMemoryMap;
 
 use super::boot_services::BootServices;
 use super::configuration_table::{ConfigurationTable, ConfigurationTableEntry};
@@ -47,11 +47,11 @@ impl BootSystemTable {
     /// ## Safety
     /// It is up to the caller to ensure the memory map is properly used so that no allocated memory is overwritten
     pub unsafe fn exit_boot_services(mut self, image_handle: efi::Handle) -> 
-        Result<(RuntimeSystemTable, GetMemoryMapOutput), efi::Status>{
-        let mem_info = self.boot_services.get_memory_map()?;
-        self.boot_services.exit_boot_services(image_handle, mem_info.map_key)?;
+        Result<(RuntimeSystemTable, EfiMemoryMap), efi::Status>{
+        let memory_map = self.boot_services.get_memory_map()?;
+        self.boot_services.exit_boot_services(image_handle, memory_map.map_key)?;
         let runtime_table = RuntimeSystemTable::new(self.system_table_ptr);
-        Ok((runtime_table, mem_info))
+        Ok((runtime_table, memory_map))
     }
 }
 

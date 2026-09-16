@@ -3,14 +3,14 @@ use core::ptr::null_mut;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Bitmap {
-    size: usize,
+    buffer_size: usize,
     buffer: *mut BitmapByte
 }
 
 impl Bitmap {
     pub const unsafe fn new_uninitialized() -> Bitmap {
         Bitmap {
-            size: 0,
+            buffer_size: 0,
             buffer: null_mut(),
         }
     }
@@ -25,7 +25,7 @@ impl Bitmap {
     /// 3. Points to a memory block large enough for the bitmap
     pub unsafe fn new(size: usize, buffer: *mut u8) -> Bitmap {
         Bitmap {
-            size,
+            buffer_size: size,
             buffer: buffer as *mut BitmapByte,
         }
     }
@@ -34,6 +34,14 @@ impl Bitmap {
         Self::new_init(size, buffer, 0)
     }
 
+    /// Create a new bitmap initialized with a given value
+    /// 
+    /// ## Safety
+    /// 
+    /// The caller must ensure that the buffer is:
+    /// 1. Only used by this Bitmap
+    /// 2. Is a valid pointer
+    /// 3. Points to a memory block large enough for the bitmap
     pub unsafe fn new_init(size: usize, buffer: *mut u8, default: u8) -> Bitmap {
         let mut bitmap = Self::new(size, buffer);
 
@@ -48,7 +56,7 @@ impl Bitmap {
         let buffer_index = (index / 8) as usize;
         let bit_index = index % 8;
 
-        if buffer_index > self.size {
+        if buffer_index > self.buffer_size {
             return false;
         } else {
             unsafe {
@@ -61,7 +69,7 @@ impl Bitmap {
         let buffer_index = (index / 8) as usize;
         let bit_index = index % 8;
 
-        if buffer_index > self.size {
+        if buffer_index > self.buffer_size {
             return false;
         } else {
             unsafe {
@@ -96,11 +104,11 @@ impl Bitmap {
     }
 
     pub fn size(&self) -> usize {
-        self.size
+        self.buffer_size
     }
 
     fn set_byte(&mut self, index: usize, byte: u8) {
-        if index > self.size { return }
+        if index > self.buffer_size { return }
 
         unsafe {
             (*self.buffer.offset(index as isize)).set_byte(byte);
